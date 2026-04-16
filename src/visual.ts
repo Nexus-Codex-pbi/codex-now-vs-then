@@ -44,6 +44,7 @@ export class Visual implements IVisual {
     private selectionManager: ISelectionManager;
     private tooltipService: ITooltipService;
     private localizationManager: ILocalizationManager;
+    private scrollContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private svg: Selection<SVGSVGElement, unknown, null, undefined>;
     private formattingSettings: VisualFormattingSettingsModel;
     private formattingSettingsService: FormattingSettingsService;
@@ -67,7 +68,14 @@ export class Visual implements IVisual {
             e.preventDefault();
         });
 
-        this.svg = select(this.target)
+        this.scrollContainer = select(this.target)
+            .append("div")
+            .classed("now-vs-then-scroll", true)
+            .style("width", "100%")
+            .style("height", "100%")
+            .style("overflow", "auto");
+
+        this.svg = this.scrollContainer
             .append("svg")
             .classed("now-vs-then-svg", true);
     }
@@ -91,7 +99,8 @@ export class Visual implements IVisual {
 
             const width = options.viewport.width;
             const height = options.viewport.height;
-            this.svg.attr("width", width).attr("height", height);
+            // Set viewport size on scroll container
+            this.scrollContainer.style("width", width + "px").style("height", height + "px");
 
             // Clear
             this.svg.selectAll("*").remove();
@@ -114,7 +123,10 @@ export class Visual implements IVisual {
             const xAxisTitleText = axisSettings.xAxisTitle.value || "";
             const yAxisTitleText = axisSettings.yAxisTitle.value || "";
 
-            this.renderDumbbell(rows, width, height, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText);
+            this.renderDumbbell(rows, width, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText);
+
+            // Size SVG to actual content so scroll container shows scrollbars when needed
+            this.svg.attr("width", width).attr("height", this.computeContentHeight(rows));
             this.eventService.renderingFinished(options);
         } catch (e) {
             this.eventService.renderingFailed(options, String(e));
@@ -210,7 +222,35 @@ export class Visual implements IVisual {
         return rows;
     }
 
-    private renderDumbbell(rows: MetricRow[], width: number, height: number, animate: boolean,
+    private computeContentHeight(rows: MetricRow[]): number {
+        const lbl = this.formattingSettings.labelCard;
+        const showLabels = lbl.showLabels.value;
+        const catFontSize = Math.max(8, Math.min(30, lbl.categoryFontSize.value));
+        const valFontSize = Math.max(8, Math.min(24, lbl.valueFontSize.value));
+        const comp = this.formattingSettings.comparisonCard;
+        const dotRadius = Math.max(3, comp.dotRadius.value);
+        const style = this.formattingSettings.styleCard;
+        const rowSpacing = Math.max(4, style.rowSpacing.value);
+        const trackHeight = Math.max(1, style.trackHeight.value);
+
+        const labelRowHeight = showLabels ? 16 : 0;
+        const valueRowHeight = valFontSize + 4;
+        const dumbbellHeight = Math.max(dotRadius * 2 + 4, trackHeight + 8);
+        const singleRowHeight = catFontSize + 4 + dumbbellHeight + valueRowHeight + labelRowHeight;
+        const totalRowHeight = singleRowHeight + rowSpacing;
+
+        let contentH = 12 + rows.length * totalRowHeight; // margin.top + rows
+
+        // Axis titles add extra height
+        const axisSettings = this.formattingSettings.axisCard;
+        if (axisSettings?.showAxisTitles?.value && axisSettings?.xAxisTitle?.value) {
+            contentH += catFontSize + 8;
+        }
+
+        return contentH;
+    }
+
+    private renderDumbbell(rows: MetricRow[], width: number, animate: boolean,
         showAxisTitles: boolean = false, xAxisTitleText: string = "", yAxisTitleText: string = ""): void {
         const comp = this.formattingSettings.comparisonCard;
         const lbl = this.formattingSettings.labelCard;
@@ -256,7 +296,7 @@ export class Visual implements IVisual {
         // Background
         if (bgColor && bgColor.length > 0) {
             this.svg.append("rect")
-                .attr("width", width).attr("height", height)
+                .attr("width", width).attr("height", this.computeContentHeight(rows))
                 .attr("fill", bgColor);
         }
 
@@ -592,7 +632,7 @@ export class Visual implements IVisual {
                 this.svg.append("text")
                     .classed("axis-title x-axis-title", true)
                     .attr("x", chartLeft + chartWidth / 2)
-                    .attr("y", height - 2)
+                    .attr("y", this.computeContentHeight(rows) - 2)
                     .attr("text-anchor", "middle")
                     .attr("font-size", axisTitleFontSize + "px")
                     .attr("font-weight", "600")
