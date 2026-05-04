@@ -170,6 +170,28 @@ class LabelSettingsCard extends FormattingSettingsCard {
         value: true
     });
 
+    endpointLabelFontSize = new formattingSettings.NumUpDown({
+        name: "endpointLabelFontSize",
+        displayName: "Endpoint Label Font Size",
+        description: "Font size for the Now/Then labels above the endpoint dots",
+        value: 9
+    });
+
+    endpointLabelBold = new formattingSettings.ToggleSwitch({
+        name: "endpointLabelBold",
+        displayName: "Bold Endpoint Labels",
+        description: "Render the Now/Then endpoint labels in bold",
+        value: false
+    });
+
+    endpointLabelColor = new formattingSettings.ColorPicker({
+        name: "endpointLabelColor",
+        displayName: "Endpoint Label Color",
+        description: "Override colour for both Now/Then endpoint labels. Leave empty to keep the default (Now uses the variance colour, Then uses neutral).",
+        value: { value: "" },
+        instanceKind: ConstantOrRule
+    });
+
     name: string = "labelSettings";
     displayName: string = "Labels";
     slices: Array<FormattingSettingsSlice> = [
@@ -180,7 +202,10 @@ class LabelSettingsCard extends FormattingSettingsCard {
         this.badgeFontSize,
         this.nowLabel,
         this.thenLabel,
-        this.showLabels
+        this.showLabels,
+        this.endpointLabelFontSize,
+        this.endpointLabelBold,
+        this.endpointLabelColor
     ];
 }
 
@@ -225,6 +250,24 @@ class StyleSettingsCard extends FormattingSettingsCard {
 }
 
 class AxisSettingsCard extends FormattingSettingsCard {
+    axisMode = new formattingSettings.ItemDropdown({
+        name: "axisMode",
+        displayName: "Axis Mode",
+        description: "Shared: all rows share one min-max scale. Independent: each category scales between its own Now and Then values so small movements remain visible.",
+        items: [
+            { displayName: "Shared (single scale)", value: "shared" },
+            { displayName: "Independent per category", value: "perCategory" }
+        ],
+        value: { displayName: "Shared (single scale)", value: "shared" }
+    });
+
+    perCategoryPadding = new formattingSettings.NumUpDown({
+        name: "perCategoryPadding",
+        displayName: "Per-Category Padding (%)",
+        description: "Padding either side of each row's Now/Then range when Axis Mode is Independent. Higher values shrink the dumbbell within the track.",
+        value: 25
+    });
+
     showAxisTitles = new formattingSettings.ToggleSwitch({
         name: "showAxisTitles",
         displayName: "Show Axis Titles",
@@ -247,8 +290,10 @@ class AxisSettingsCard extends FormattingSettingsCard {
     });
 
     name: string = "axisSettings";
-    displayName: string = "Axis Titles";
+    displayName: string = "Axis";
     slices: Array<FormattingSettingsSlice> = [
+        this.axisMode,
+        this.perCategoryPadding,
         this.showAxisTitles,
         this.xAxisTitle,
         this.yAxisTitle

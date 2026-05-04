@@ -62,18 +62,23 @@ export class Visual implements IVisual {
         this.tooltipService = options.host.tooltipService;
         this.localizationManager = options.host.createLocalizationManager();
 
-        // Context menu
-        this.target.addEventListener("contextmenu", (e: MouseEvent) => {
-            this.selectionManager.showContextMenu({}, { x: e.clientX, y: e.clientY });
-            e.preventDefault();
-        });
-
         this.scrollContainer = select(this.target)
             .append("div")
             .classed("now-vs-then-scroll", true)
             .style("width", "100%")
             .style("height", "100%")
             .style("overflow", "auto");
+
+        // Context menu. Listener on target AND on the inner scrollContainer —
+        // the scrollContainer's padding/scroll-gutter regions don't bubble
+        // contextmenu events reliably in PBI's sandbox, so a direct listener
+        // is required to cover right-clicks in empty padding (Policy 1180.2.5).
+        const ctxHandler = (e: MouseEvent) => {
+            this.selectionManager.showContextMenu({}, { x: e.clientX, y: e.clientY });
+            e.preventDefault();
+        };
+        this.target.addEventListener("contextmenu", ctxHandler);
+        (this.scrollContainer.node() as HTMLElement).addEventListener("contextmenu", ctxHandler);
 
         this.svg = this.scrollContainer
             .append("svg")
@@ -233,7 +238,8 @@ export class Visual implements IVisual {
         const rowSpacing = Math.max(4, style.rowSpacing.value);
         const trackHeight = Math.max(1, style.trackHeight.value);
 
-        const labelRowHeight = showLabels ? 16 : 0;
+        const endpointLabelFontSize = Math.max(6, Math.min(24, lbl.endpointLabelFontSize.value));
+        const labelRowHeight = showLabels ? Math.max(12, endpointLabelFontSize + 4) : 0;
         const valueRowHeight = valFontSize + 4;
         const dumbbellHeight = Math.max(dotRadius * 2 + 4, trackHeight + 8);
         const singleRowHeight = catFontSize + 4 + dumbbellHeight + valueRowHeight + labelRowHeight;
@@ -276,6 +282,9 @@ export class Visual implements IVisual {
         const nowLabelText = lbl.nowLabel.value || "Now";
         const thenLabelText = lbl.thenLabel.value || "Then";
         const showLabels = lbl.showLabels.value;
+        const endpointLabelFontSize = clamp(lbl.endpointLabelFontSize.value, 6, 24);
+        const endpointLabelBold = lbl.endpointLabelBold.value;
+        const endpointLabelColorOverride = (lbl.endpointLabelColor.value?.value || "").trim();
 
         let bgColor = style.backgroundColor.value.value;
         let trackColor = style.trackColor.value.value;
@@ -309,20 +318,36 @@ export class Visual implements IVisual {
         const chartWidth = chartRight - chartLeft;
 
         // Vertical layout
-        const labelRowHeight = showLabels ? 16 : 0;
+        const labelRowHeight = showLabels ? Math.max(12, endpointLabelFontSize + 4) : 0;
         const valueRowHeight = valFontSize + 4;
         const dumbbellHeight = Math.max(dotRadius * 2 + 4, trackHeight + 8);
         const singleRowHeight = catFontSize + 4 + dumbbellHeight + valueRowHeight + labelRowHeight;
         const totalRowHeight = singleRowHeight + rowSpacing;
 
-        // Scale: map all values to chart width
-        const allValues = rows.flatMap(r => [r.nowValue, r.thenValue]);
-        const minVal = Math.min(...allValues);
-        const maxVal = Math.max(...allValues);
-        const pad = (maxVal - minVal) * 0.08 || 1;
-        const xScale = scaleLinear()
-            .domain([minVal - pad, maxVal + pad])
-            .range([dotRadius + 2, chartWidth - dotRadius - 2]);
+        // Scale: shared across rows, or independent per category
+        const axisCard = this.formattingSettings.axisCard;
+        const axisMode = (axisCard.axisMode.value?.value as string) || "shared";
+        const perCatPadPct = clamp(axisCard.perCategoryPadding.value, 0, 200) / 100;
+        const xRange: [number, number] = [dotRadius + 2, chartWidth - dotRadius - 2];
+
+        const sharedScale = (() => {
+            const allValues = rows.flatMap(r => [r.nowValue, r.thenValue]);
+            const minVal = Math.min(...allValues);
+            const maxVal = Math.max(...allValues);
+            const pad = (maxVal - minVal) * 0.08 || 1;
+            return scaleLinear().domain([minVal - pad, maxVal + pad]).range(xRange);
+        })();
+
+        const scaleForRow = (row: MetricRow) => {
+            if (axisMode !== "perCategory") return sharedScale;
+            const lo = Math.min(row.nowValue, row.thenValue);
+            const hi = Math.max(row.nowValue, row.thenValue);
+            const span = hi - lo;
+            // Pad either side. When Now == Then, fall back to a magnitude-based pad
+            // so the dot still lands centred rather than at a degenerate domain edge.
+            const pad = span > 0 ? span * perCatPadPct : (Math.abs(hi) * perCatPadPct || 1);
+            return scaleLinear().domain([lo - pad, hi + pad]).range(xRange);
+        };
 
         // Helper for tooltip value formatting
         const fmtRowVal = (v: number, row: MetricRow): string => {
@@ -408,8 +433,9 @@ export class Visual implements IVisual {
                 .attr("opacity", 0.5);
 
             // Positions — enforce minimum separation so dots don't overlap
-            const rawThenX = chartLeft + xScale(row.thenValue);
-            const rawNowX = chartLeft + xScale(row.nowValue);
+            const rowScale = scaleForRow(row);
+            const rawThenX = chartLeft + rowScale(row.thenValue);
+            const rawNowX = chartLeft + rowScale(row.nowValue);
             const minSep = dotRadius * 3 + 4; // minimum pixel gap between dot centres
             let thenX = rawThenX;
             let nowX = rawNowX;
@@ -519,20 +545,26 @@ export class Visual implements IVisual {
                 const thenLblAnchor = dotsClose ? (thenX < nowX ? "end" : "start") : "middle";
                 const nowLblAnchor = dotsClose ? (nowX > thenX ? "start" : "end") : "middle";
 
+                const thenFill = endpointLabelColorOverride || neutralColor;
+                const nowFill = endpointLabelColorOverride || dirColor;
+                const thenWeight = endpointLabelBold ? "700" : "400";
+                const nowWeight = endpointLabelBold ? "700" : "600";
+
                 const thenLbl = g.append("text")
                     .attr("x", thenX).attr("y", labelY)
                     .attr("text-anchor", thenLblAnchor)
-                    .attr("font-size", "9px")
-                    .attr("fill", neutralColor)
+                    .attr("font-size", endpointLabelFontSize + "px")
+                    .attr("font-weight", thenWeight)
+                    .attr("fill", thenFill)
                     .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
                     .text(thenLabelText);
 
                 const nowLbl = g.append("text")
                     .attr("x", nowX).attr("y", labelY)
                     .attr("text-anchor", nowLblAnchor)
-                    .attr("font-size", "9px")
-                    .attr("font-weight", "600")
-                    .attr("fill", dirColor)
+                    .attr("font-size", endpointLabelFontSize + "px")
+                    .attr("font-weight", nowWeight)
+                    .attr("fill", nowFill)
                     .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
                     .text(nowLabelText);
 
@@ -578,7 +610,10 @@ export class Visual implements IVisual {
                 const badgeY = dumbbellY;
 
                 // Build variance text
-                const arrow = row.direction === "positive" ? "\u25B2" : row.direction === "negative" ? "\u25BC" : "";
+                // Arrow reflects raw numeric movement (Now vs Then), independent of
+                // the good/bad colour semantics. e.g. a downIsGood metric trending up
+                // shows \u25B2 in red \u2014 value went up, but that's bad for this metric.
+                const arrow = row.change > 0 ? "\u25B2" : row.change < 0 ? "\u25BC" : "";
                 let varText = "";
                 if (varianceFmt === "percent" || varianceFmt === "both") {
                     varText += (row.changePct >= 0 ? "+" : "") + row.changePct.toFixed(1) + "%";

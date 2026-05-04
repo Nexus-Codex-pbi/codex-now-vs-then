@@ -115,6 +115,15 @@
                 },
                 "showLabels": {
                     "type": { "bool": true }
+                },
+                "endpointLabelFontSize": {
+                    "type": { "numeric": true }
+                },
+                "endpointLabelBold": {
+                    "type": { "bool": true }
+                },
+                "endpointLabelColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
                 }
             }
         },
@@ -136,6 +145,17 @@
         },
         "axisSettings": {
             "properties": {
+                "axisMode": {
+                    "type": {
+                        "enumeration": [
+                            { "displayName": "Shared (single scale)", "value": "shared" },
+                            { "displayName": "Independent per category", "value": "perCategory" }
+                        ]
+                    }
+                },
+                "perCategoryPadding": {
+                    "type": { "numeric": true }
+                },
                 "showAxisTitles": {
                     "type": { "bool": true }
                 },
