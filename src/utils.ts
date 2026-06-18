@@ -1,5 +1,5 @@
 /**
- * Shared utilities for OptiStock PBI Custom Visuals
+ * Shared utilities for Codex PBI Custom Visuals
  * Codex Brand tokens + formatting helpers
  */
 
