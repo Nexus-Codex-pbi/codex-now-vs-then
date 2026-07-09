@@ -8,6 +8,8 @@ import FormattingSettingsCard = formattingSettings.SimpleCard;
 import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
+import { BackgroundSettings } from "../../_shared/formatting/backgroundSettings";
+
 const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
 
 class ComparisonSettingsCard extends FormattingSettingsCard {
@@ -305,6 +307,26 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     labelCard = new LabelSettingsCard();
     styleCard = new StyleSettingsCard();
     axisCard = new AxisSettingsCard();
+    background = new BackgroundSettings();
 
-    cards = [this.comparisonCard, this.labelCard, this.styleCard, this.axisCard];
+    constructor() {
+        super();
+        // D-06 default-preservation override (per-visual instance only —
+        // _shared/formatting/backgroundSettings.ts itself is untouched,
+        // D-11): this visual's PRE-EXISTING default was "no background
+        // painted" (styleCard.backgroundColor defaulted to "", so no rect
+        // was ever drawn — see the old `if (bgColor && bgColor.length > 0)`
+        // gate in visual.ts). The frozen shared Background card's own
+        // default (opaque white, transparency 0) would regress every old
+        // saved report that never touched this brand-new property to a
+        // suddenly-opaque white background. Overriding the TRANSPARENCY
+        // default to 100 on this instance makes toRgba(...) resolve to
+        // alpha 0 regardless of colour, which is visually identical to
+        // "no rect painted" — restoring pixel-identical old-report
+        // rendering while still exposing a real, working Colour +
+        // Transparency control for any report that opts in.
+        this.background.transparency.value = 100;
+    }
+
+    cards = [this.comparisonCard, this.labelCard, this.styleCard, this.axisCard, this.background];
 }

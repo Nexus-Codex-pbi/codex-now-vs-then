@@ -38,3 +38,21 @@
 - [ ] Demonstrates all features (now vs then dumbbells, colour coding, tooltips, click-to-filter)
 - [ ] Demonstrates formatting options (all format pane sections)
 - [ ] Demonstrates interactions (click-to-filter, context menu, tooltips, animation)
+
+## 7. Background Transparency (TRANS-01/02/03/05)
+- [ ] Background card (Colour + Transparency) appears in the format pane
+- [ ] Old saved report (background properties never set) renders pixel-identical to pre-upgrade — no background painted (transparency defaults to 100 on this visual specifically to preserve its pre-existing "no background" default, D-06)
+- [ ] Setting Transparency to 0% with a colour chosen shows a fully opaque painted background over a non-white report canvas
+- [ ] Transparency 50% shows true partial transparency (canvas colour blends through)
+- [ ] Pre-existing Style > Background Color property (if set on an old report) continues to render exactly as before, layered beneath the new shared Background card
+- [ ] Light theme and dark theme both render correctly with transparency applied
+
+## 8. Conditional Formatting / fx (TRANS-04)
+- [ ] fx button appears next to Positive Color swatch (Comparison card) in the format pane
+- [ ] Binding a rule to Positive Color changes colour per category/row for positive-direction rows
+- [ ] Rows without a rule fall back to the static Positive Color swatch value
+
+## 9. Context Menu Regression (CERT-01 — T-04-01, dual listener)
+- [ ] Right-click on empty space/padding within the visual still opens the Power BI context menu after the background transparency change
+- [ ] Right-click directly on a dumbbell row still opens the context menu
+- [ ] Both listeners (this.target AND scrollContainer, constructor lines ~76-90) remain unchanged by this plan

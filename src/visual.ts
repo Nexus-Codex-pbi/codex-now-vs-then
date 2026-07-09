@@ -24,6 +24,10 @@ import DataView = powerbi.DataView;
 import { VisualFormattingSettingsModel } from "./settings";
 import { formatValue, clamp } from "./utils";
 
+import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
+import { ColorHelper } from "powerbi-visuals-utils-colorutils";
+import { toRgba } from "../../_shared/formatting/colorHelpers";
+
 interface MetricRow {
     category: string;
     nowValue: number;
@@ -35,6 +39,7 @@ interface MetricRow {
     rowDirection: string | null;    // "upIsGood" | "downIsGood" | null (default upIsGood)
     direction: "positive" | "negative" | "neutral";
     selectionId: ISelectionId | null;
+    categoryIndex: number;
 }
 
 export class Visual implements IVisual {
@@ -52,6 +57,10 @@ export class Visual implements IVisual {
     private isHighContrast: boolean = false;
     private highContrastForeground: string = "";
     private highContrastBackground: string = "";
+
+    // Conditional formatting (fx) state — Positive Colour (TRANS-04)
+    private categoricalCategories: powerbi.DataViewCategoryColumn | undefined;
+    private positiveColorHelper: ColorHelper | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -110,12 +119,37 @@ export class Visual implements IVisual {
             // Clear
             this.svg.selectAll("*").remove();
 
+            this.categoricalCategories = dataView?.categorical?.categories?.[0];
+
             const rows = this.parseData(dataView);
             if (rows.length === 0) {
                 this.renderEmpty(width, height);
                 this.eventService.renderingFinished(options);
                 return;
             }
+
+            // ─── Conditional formatting (fx) wiring — Positive Colour
+            // (TRANS-04). A bare `instanceKind: ConstantOrRule` declaration
+            // in settings.ts does not make the fx button functional on its
+            // own (Pitfall 5) — it also needs a `selector` (dataViewWildcard,
+            // so a rule can match this measure's category instances/totals)
+            // and an `altConstantSelector` bound to a concrete selectionId
+            // for the "set for all" swatch edit path. Resolved per-row at
+            // render via ColorHelper.getColorForMeasure against each
+            // category's own per-instance object overrides
+            // (categoricalCategories.objects[categoryIndex]).
+            const positiveColorSlice = this.formattingSettings.comparisonCard.positiveColor;
+            positiveColorSlice.selector = dataViewWildcard.createDataViewWildcardSelector(
+                dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
+            );
+            positiveColorSlice.altConstantSelector = rows[0]?.selectionId
+                ? rows[0].selectionId.getSelector()
+                : undefined;
+            this.positiveColorHelper = new ColorHelper(
+                this.host.colorPalette,
+                { objectName: "comparisonSettings", propertyName: "positiveColor" },
+                positiveColorSlice.value.value
+            );
 
             // Check if data actually changed (to decide whether to animate)
             const dataKey = JSON.stringify(rows.map(r => [r.category, r.nowValue, r.thenValue]));
@@ -212,7 +246,8 @@ export class Visual implements IVisual {
                 rowFormat,
                 rowDirection,
                 direction,
-                selectionId
+                selectionId,
+                categoryIndex: r
             });
         }
 
@@ -302,7 +337,27 @@ export class Visual implements IVisual {
             valColor = this.highContrastForeground;
         }
 
-        // Background
+        // ─── Dedicated background layer (D-05) ─────────────────────────
+        // Suite-wide shared Background card (Colour + Transparency, sourced
+        // from _shared/formatting/), painted as the SVG's own first <rect>
+        // — never whole-root opacity. This visual's pre-existing
+        // styleCard.backgroundColor is left fully intact below (still
+        // painted, unchanged) for any old report that set it; the NEW
+        // shared card is layered on top of it. Its transparency default is
+        // overridden to 100 in settings.ts specifically so an OLD saved
+        // report (this property never previously existed) renders alpha 0
+        // — pixel-identical to painting nothing (D-06) — while still
+        // exposing a real, working Colour + Transparency control.
+        const background = this.formattingSettings.background;
+        if (!this.isHighContrast) {
+            const bgHex = background.backgroundColor.value?.value ?? "#ffffff";
+            const bgTransparencyPct = background.transparency.value ?? 100;
+            this.svg.append("rect")
+                .attr("width", width).attr("height", this.computeContentHeight(rows))
+                .attr("fill", toRgba(bgHex, bgTransparencyPct));
+        }
+
+        // Pre-existing Style-card background (untouched behaviour, D-06)
         if (bgColor && bgColor.length > 0) {
             this.svg.append("rect")
                 .attr("width", width).attr("height", this.computeContentHeight(rows))
@@ -364,7 +419,11 @@ export class Visual implements IVisual {
             const delay = animate ? idx * staggerDelay : 0;
             const dur = animate ? animDuration : 0;
 
-            const dirColor = row.direction === "positive" ? positiveColor
+            const instanceObjects = this.categoricalCategories?.objects?.[row.categoryIndex];
+            const resolvedPositiveColor = this.isHighContrast
+                ? this.highContrastForeground
+                : (this.positiveColorHelper?.getColorForMeasure(instanceObjects, "nowValue") ?? positiveColor);
+            const dirColor = row.direction === "positive" ? resolvedPositiveColor
                 : row.direction === "negative" ? negativeColor : neutralColor;
 
             const g = this.svg.append("g")
@@ -693,6 +752,17 @@ export class Visual implements IVisual {
     }
 
     private renderEmpty(width: number, height: number): void {
+        // Dedicated background layer (D-05) — same shared card as
+        // renderDumbbell(), so the empty state also honours it.
+        if (!this.isHighContrast) {
+            const background = this.formattingSettings.background;
+            const bgHex = background.backgroundColor.value?.value ?? "#ffffff";
+            const bgTransparencyPct = background.transparency.value ?? 100;
+            this.svg.append("rect")
+                .attr("width", width).attr("height", height)
+                .attr("fill", toRgba(bgHex, bgTransparencyPct));
+        }
+
         const fillColor = this.isHighContrast ? this.highContrastForeground : "#999999";
         this.svg.append("text")
             .attr("x", width / 2).attr("y", height / 2)
