@@ -169,6 +169,32 @@
           },
           "displayName": "Category Font Size"
         },
+        "categoryFontFamily": {
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          },
+          "displayName": "Category Font Family"
+        },
+        "categoryBold": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Category Bold"
+        },
+        "categoryItalic": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Category Italic"
+        },
+        "categoryUnderline": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Category Underline"
+        },
         "categoryColor": {
           "type": {
             "fill": {
@@ -185,6 +211,32 @@
           },
           "displayName": "Value Font Size"
         },
+        "valueFontFamily": {
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          },
+          "displayName": "Value Font Family"
+        },
+        "valueBold": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Value Bold"
+        },
+        "valueItalic": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Value Italic"
+        },
+        "valueUnderline": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Value Underline"
+        },
         "valueColor": {
           "type": {
             "fill": {
@@ -195,11 +247,89 @@
           },
           "displayName": "Value Color"
         },
+        "thenFontSize": {
+          "type": {
+            "numeric": true
+          },
+          "displayName": "Then Value Font Size"
+        },
+        "thenFontFamily": {
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          },
+          "displayName": "Then Value Font Family"
+        },
+        "thenBold": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Then Value Bold"
+        },
+        "thenItalic": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Then Value Italic"
+        },
+        "thenUnderline": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Then Value Underline"
+        },
+        "thenColor": {
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          },
+          "displayName": "Then Value Color"
+        },
         "badgeFontSize": {
           "type": {
             "numeric": true
           },
           "displayName": "Badge Font Size"
+        },
+        "badgeFontFamily": {
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          },
+          "displayName": "Badge Font Family"
+        },
+        "badgeBold": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Badge Bold"
+        },
+        "badgeItalic": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Badge Italic"
+        },
+        "badgeUnderline": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Badge Underline"
+        },
+        "badgeColor": {
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          },
+          "displayName": "Badge Text Color Override"
         },
         "nowLabel": {
           "type": {
@@ -342,6 +472,75 @@
           "displayName": "Transparency",
           "type": {
             "numeric": true
+          }
+        }
+      }
+    },
+    "titleSettings": {
+      "displayName": "Visual Title",
+      "properties": {
+        "showTitle": {
+          "displayName": "Show Title",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleText": {
+          "displayName": "Title Text",
+          "type": {
+            "text": true
+          }
+        },
+        "titleFontFamily": {
+          "displayName": "Font Family",
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          }
+        },
+        "titleFontSize": {
+          "displayName": "Font Size",
+          "type": {
+            "formatting": {
+              "fontSize": true
+            }
+          }
+        },
+        "titleBold": {
+          "displayName": "Bold",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleItalic": {
+          "displayName": "Italic",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleUnderline": {
+          "displayName": "Underline",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleAlign": {
+          "displayName": "Alignment",
+          "type": {
+            "formatting": {
+              "alignment": true
+            }
+          }
+        },
+        "titleColor": {
+          "displayName": "Font Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
           }
         }
       }

@@ -21,7 +21,7 @@ import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
 import ISandboxExtendedColorPalette = powerbi.extensibility.ISandboxExtendedColorPalette;
 import DataView = powerbi.DataView;
 
-import { VisualFormattingSettingsModel } from "./settings";
+import { VisualFormattingSettingsModel, alignSelfFor, textAlignFor } from "./settings";
 import { formatValue, clamp } from "./utils";
 
 import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
@@ -50,6 +50,7 @@ export class Visual implements IVisual {
     private tooltipService: ITooltipService;
     private localizationManager: ILocalizationManager;
     private scrollContainer: Selection<HTMLDivElement, unknown, null, undefined>;
+    private titleEl: HTMLDivElement;
     private svg: Selection<SVGSVGElement, unknown, null, undefined>;
     private formattingSettings: VisualFormattingSettingsModel;
     private formattingSettingsService: FormattingSettingsService;
@@ -61,6 +62,9 @@ export class Visual implements IVisual {
     // Conditional formatting (fx) state — Positive Colour (TRANS-04)
     private categoricalCategories: powerbi.DataViewCategoryColumn | undefined;
     private positiveColorHelper: ColorHelper | null = null;
+
+    // Conditional formatting (fx) state — Now Value Colour (TEXT-02)
+    private valueColorHelper: ColorHelper | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -88,6 +92,18 @@ export class Visual implements IVisual {
         };
         this.target.addEventListener("contextmenu", ctxHandler);
         (this.scrollContainer.node() as HTMLElement).addEventListener("contextmenu", ctxHandler);
+
+        // Internal title (rendered inside iframe so right-click on it
+        // satisfies Policy 1180.2.5 — same shared-card approach as
+        // pbiKpiCard/pbiCallbackCard, D-13/D-14). A persistent HTML div,
+        // NOT an SVG child — created before the svg so it stacks above the
+        // chart in normal document flow inside scrollContainer (which is
+        // in-flow, not the contextmenu-bearing target, so it cannot swallow
+        // empty-space right-clicks, T-11-01).
+        this.titleEl = this.scrollContainer.append("div")
+            .classed("now-vs-then-title", true)
+            .style("display", "none")
+            .node() as HTMLDivElement;
 
         this.svg = this.scrollContainer
             .append("svg")
@@ -123,10 +139,13 @@ export class Visual implements IVisual {
 
             const rows = this.parseData(dataView);
             if (rows.length === 0) {
+                this.titleEl.style.display = "none";
                 this.renderEmpty(width, height);
                 this.eventService.renderingFinished(options);
                 return;
             }
+
+            this.renderTitle();
 
             // ─── Conditional formatting (fx) wiring — Positive Colour
             // (TRANS-04). A bare `instanceKind: ConstantOrRule` declaration
@@ -149,6 +168,24 @@ export class Visual implements IVisual {
                 this.host.colorPalette,
                 { objectName: "comparisonSettings", propertyName: "positiveColor" },
                 positiveColorSlice.value.value
+            );
+
+            // ─── Conditional formatting (fx) wiring — Now Value Colour
+            // (TEXT-02). Same wildcard-selector + altConstantSelector +
+            // ColorHelper.getColorForMeasure pattern as Positive Colour
+            // above, targeting the "nowValue" measure role so a fx rule
+            // resolves against the bound Now Value field.
+            const valueColorSlice = this.formattingSettings.labelCard.valueColor;
+            valueColorSlice.selector = dataViewWildcard.createDataViewWildcardSelector(
+                dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
+            );
+            valueColorSlice.altConstantSelector = rows[0]?.selectionId
+                ? rows[0].selectionId.getSelector()
+                : undefined;
+            this.valueColorHelper = new ColorHelper(
+                this.host.colorPalette,
+                { objectName: "labelSettings", propertyName: "valueColor" },
+                valueColorSlice.value.value
             );
 
             // Check if data actually changed (to decide whether to animate)
@@ -313,6 +350,8 @@ export class Visual implements IVisual {
         let catColor = lbl.categoryColor.value.value;
         const valFontSize = clamp(lbl.valueFontSize.value, 8, 24);
         let valColor = lbl.valueColor.value.value;
+        const thenFontSize = clamp(lbl.thenFontSize.value, 8, 24);
+        let thenValueColor = lbl.thenColor.value.value;
         const badgeFontSize = clamp(lbl.badgeFontSize.value, 8, 20);
         const nowLabelText = lbl.nowLabel.value || "Now";
         const thenLabelText = lbl.thenLabel.value || "Then";
@@ -320,6 +359,37 @@ export class Visual implements IVisual {
         const endpointLabelFontSize = clamp(lbl.endpointLabelFontSize.value, 6, 24);
         const endpointLabelBold = lbl.endpointLabelBold.value;
         const endpointLabelColorOverride = (lbl.endpointLabelColor.value?.value || "").trim();
+        const badgeColorOverride = (lbl.badgeColor.value?.value || "").trim();
+
+        // ─── Text treatment (font family/weight/style/decoration,
+        // TEXT-01/TEXT-02) — `?? default` reproduces each surface's
+        // PRE-EXISTING hardcoded style exactly when an old saved report has
+        // none of these new properties set (D-06):
+        //   category: was hardcoded font-weight 600 -> categoryBold defaults true
+        //   Now value: was hardcoded font-weight 700 -> valueBold defaults true
+        //   Then value: had no font-weight set       -> thenBold defaults false
+        //   badge/delta: was hardcoded font-weight 700 -> badgeBold defaults true
+        const weightFor = (bold: boolean | undefined, restWeight: string): string => bold ? "700" : restWeight;
+
+        const categoryFontFamily = lbl.categoryFontFamily.value || "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
+        const categoryWeight = weightFor(lbl.categoryBold.value, "600");
+        const categoryStyle = lbl.categoryItalic.value ? "italic" : "normal";
+        const categoryDecoration = lbl.categoryUnderline.value ? "underline" : "none";
+
+        const valueFontFamily = lbl.valueFontFamily.value || "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
+        const valueWeight = weightFor(lbl.valueBold.value, "700");
+        const valueStyle = lbl.valueItalic.value ? "italic" : "normal";
+        const valueDecoration = lbl.valueUnderline.value ? "underline" : "none";
+
+        const thenFontFamily = lbl.thenFontFamily.value || "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
+        const thenWeightBase = weightFor(lbl.thenBold.value, "400");
+        const thenStyleBase = lbl.thenItalic.value ? "italic" : "normal";
+        const thenDecoration = lbl.thenUnderline.value ? "underline" : "none";
+
+        const badgeFontFamily = lbl.badgeFontFamily.value || "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
+        const badgeWeight = weightFor(lbl.badgeBold.value, "700");
+        const badgeStyle = lbl.badgeItalic.value ? "italic" : "normal";
+        const badgeDecoration = lbl.badgeUnderline.value ? "underline" : "none";
 
         let bgColor = style.backgroundColor.value.value;
         let trackColor = style.trackColor.value.value;
@@ -335,6 +405,7 @@ export class Visual implements IVisual {
             neutralColor = this.highContrastForeground;
             catColor = this.highContrastForeground;
             valColor = this.highContrastForeground;
+            thenValueColor = this.highContrastForeground;
         }
 
         // ─── Dedicated background layer (D-05) ─────────────────────────
@@ -473,9 +544,11 @@ export class Visual implements IVisual {
                 .attr("x", margin.left)
                 .attr("y", catFontSize)
                 .attr("font-size", catFontSize + "px")
-                .attr("font-weight", "600")
+                .attr("font-weight", categoryWeight)
+                .attr("font-style", categoryStyle)
+                .attr("text-decoration", categoryDecoration)
                 .attr("fill", catColor)
-                .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
+                .attr("font-family", categoryFontFamily)
                 .text(row.category);
 
             // ── Dumbbell area ──
@@ -641,21 +714,32 @@ export class Visual implements IVisual {
             const thenValText = g.append("text")
                 .attr("x", thenX).attr("y", valY)
                 .attr("text-anchor", thenAnchor)
-                .attr("font-size", (valFontSize - 1) + "px")
-                .attr("fill", neutralColor)
+                .attr("font-size", thenFontSize + "px")
+                .attr("font-weight", thenWeightBase)
+                .attr("font-style", thenStyleBase)
+                .attr("text-decoration", thenDecoration)
+                .attr("fill", thenValueColor)
                 .attr("opacity", 0.7)
-                .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
+                .attr("font-family", thenFontFamily)
                 .text(fmtVal(row.thenValue));
 
-            // Now value: anchor away from Then
+            // Now value: anchor away from Then. Colour resolves via fx
+            // (valueColorHelper, TEXT-02) against this row's own per-
+            // instance object overrides, falling back to the static Value
+            // Color swatch when no rule is bound.
+            const resolvedNowValueColor = this.isHighContrast
+                ? this.highContrastForeground
+                : (this.valueColorHelper?.getColorForMeasure(instanceObjects, "nowValue") ?? valColor);
             const nowAnchor = dotsClose ? (nowX > thenX ? "start" : "end") : "middle";
             const nowValText = g.append("text")
                 .attr("x", nowX).attr("y", valY)
                 .attr("text-anchor", nowAnchor)
                 .attr("font-size", valFontSize + "px")
-                .attr("font-weight", "700")
-                .attr("fill", valColor)
-                .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
+                .attr("font-weight", valueWeight)
+                .attr("font-style", valueStyle)
+                .attr("text-decoration", valueDecoration)
+                .attr("fill", resolvedNowValueColor)
+                .attr("font-family", valueFontFamily)
                 .text(fmtVal(row.nowValue));
 
             if (dur > 0) {
@@ -695,16 +779,24 @@ export class Visual implements IVisual {
                     .attr("fill", dirColor)
                     .attr("opacity", 0.12);
 
-                // Badge text
+                // Badge text — badgeColorOverride follows the same "empty =
+                // use the derived direction colour" idiom as
+                // endpointLabelColorOverride above (D-06 default preserves
+                // the existing dirColor-per-row behaviour exactly).
+                const badgeFill = this.isHighContrast
+                    ? this.highContrastForeground
+                    : (badgeColorOverride || dirColor);
                 const badgeText = g.append("text")
                     .attr("x", badgeX + pillWidth / 2)
                     .attr("y", badgeY)
                     .attr("text-anchor", "middle")
                     .attr("dominant-baseline", "central")
                     .attr("font-size", badgeFontSize + "px")
-                    .attr("font-weight", "700")
-                    .attr("fill", dirColor)
-                    .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
+                    .attr("font-weight", badgeWeight)
+                    .attr("font-style", badgeStyle)
+                    .attr("text-decoration", badgeDecoration)
+                    .attr("fill", badgeFill)
+                    .attr("font-family", badgeFontFamily)
                     .text(`${arrow} ${varText}`);
 
                 if (dur > 0) {
@@ -748,6 +840,34 @@ export class Visual implements IVisual {
                     .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
                     .text(yAxisTitleText);
             }
+        }
+    }
+
+    // ─── Visual Title (TITLE-01, D-13/D-14) — sourced from the shared
+    // _shared/formatting/titleSettings.ts card. Rendered as a plain HTML
+    // div (this.titleEl, created in the constructor before this.svg) so it
+    // sits in normal document flow above the chart, never as an
+    // absolutely-positioned overlay that could swallow empty-space
+    // right-clicks (T-11-01).
+    private renderTitle(): void {
+        const t = this.formattingSettings.titleSettings;
+        if (t?.showTitle?.value && t?.titleText?.value) {
+            const titleAlignVal = String((t as any).titleAlign?.value || "left");
+            this.titleEl.textContent = String(t.titleText.value);
+            if (t.titleFontFamily?.value) this.titleEl.style.fontFamily = t.titleFontFamily.value;
+            if (typeof t.titleFontSize?.value === "number") this.titleEl.style.fontSize = `${t.titleFontSize.value}px`;
+            this.titleEl.style.fontWeight = t.titleBold?.value ? "700" : "400";
+            this.titleEl.style.fontStyle = t.titleItalic?.value ? "italic" : "normal";
+            this.titleEl.style.textDecoration = t.titleUnderline?.value ? "underline" : "none";
+            this.titleEl.style.alignSelf = alignSelfFor(titleAlignVal);
+            this.titleEl.style.textAlign = textAlignFor(titleAlignVal);
+            this.titleEl.style.color = this.isHighContrast
+                ? this.highContrastForeground
+                : (t.titleColor?.value?.value ?? "#1a1a2e");
+            this.titleEl.style.padding = "8px 12px 4px";
+            this.titleEl.style.display = "";
+        } else {
+            this.titleEl.style.display = "none";
         }
     }
 

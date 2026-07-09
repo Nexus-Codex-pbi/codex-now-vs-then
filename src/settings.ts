@@ -9,8 +9,14 @@ import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
 import { BackgroundSettings } from "../../_shared/formatting/backgroundSettings";
+import { TitleSettings } from "../../_shared/formatting/titleSettings";
+import { alignSelfFor, textAlignFor, makeFontControl } from "../../_shared/formatting/textFormatting";
 
 const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
+
+// TitleSettings + alignment helpers now live in _shared/formatting/ (D-13,
+// D-14). Re-exported so visual.ts can import them from "./settings".
+export { TitleSettings, alignSelfFor, textAlignFor };
 
 class ComparisonSettingsCard extends FormattingSettingsCard {
     positiveColor = new formattingSettings.ColorPicker({
@@ -119,11 +125,19 @@ class ComparisonSettingsCard extends FormattingSettingsCard {
 }
 
 class LabelSettingsCard extends FormattingSettingsCard {
-    categoryFontSize = new formattingSettings.NumUpDown({
-        name: "categoryFontSize",
-        displayName: "Category Font Size",
-        value: 13
-    });
+    // Category (period) label text — FontControl composite reuses the
+    // existing "categoryFontSize" property name (D-06/D-07: additive-only,
+    // no schema rename). Bold defaults true — closest boolean match to the
+    // previously-hardcoded font-weight:600 on this text (render-nothing-
+    // default parity; see visual.ts's rendering comment for the full D-06
+    // rationale, matching the same design call made on pbiCallbackCard).
+    private categoryFontBundle = makeFontControl("category", { fontSize: 13, bold: true });
+    categoryFontFamily = this.categoryFontBundle.fontFamily;
+    categoryFontSize = this.categoryFontBundle.fontSize;
+    categoryBold = this.categoryFontBundle.bold;
+    categoryItalic = this.categoryFontBundle.italic;
+    categoryUnderline = this.categoryFontBundle.underline;
+    categoryFont = this.categoryFontBundle.control;
 
     categoryColor = new formattingSettings.ColorPicker({
         name: "categoryColor",
@@ -132,11 +146,15 @@ class LabelSettingsCard extends FormattingSettingsCard {
         instanceKind: ConstantOrRule
     });
 
-    valueFontSize = new formattingSettings.NumUpDown({
-        name: "valueFontSize",
-        displayName: "Value Font Size",
-        value: 12
-    });
+    // "Now" value text — reuses existing "valueFontSize"/"valueColor".
+    // Bold defaults true (matches the previously-hardcoded font-weight:700).
+    private valueFontBundle = makeFontControl("value", { fontSize: 12, bold: true });
+    valueFontFamily = this.valueFontBundle.fontFamily;
+    valueFontSize = this.valueFontBundle.fontSize;
+    valueBold = this.valueFontBundle.bold;
+    valueItalic = this.valueFontBundle.italic;
+    valueUnderline = this.valueFontBundle.underline;
+    valueFont = this.valueFontBundle.control;
 
     valueColor = new formattingSettings.ColorPicker({
         name: "valueColor",
@@ -145,10 +163,49 @@ class LabelSettingsCard extends FormattingSettingsCard {
         instanceKind: ConstantOrRule
     });
 
-    badgeFontSize = new formattingSettings.NumUpDown({
-        name: "badgeFontSize",
-        displayName: "Badge Font Size",
-        value: 11
+    // "Then" value text (below the Then dot) — brand-new dedicated font +
+    // colour (this surface previously derived its look from valueFontSize-1
+    // and comparisonCard.neutralColor with no settings of its own). Defaults
+    // reproduce that prior derived look exactly: fontSize 11 (= the old
+    // valueFontSize default 12, minus 1), color "#5e5d5a" (= neutralColor's
+    // own default hex), bold false (the old text had no font-weight set).
+    private thenFontBundle = makeFontControl("then", { fontSize: 11, bold: false });
+    thenFontFamily = this.thenFontBundle.fontFamily;
+    thenFontSize = this.thenFontBundle.fontSize;
+    thenBold = this.thenFontBundle.bold;
+    thenItalic = this.thenFontBundle.italic;
+    thenUnderline = this.thenFontBundle.underline;
+    thenFont = this.thenFontBundle.control;
+
+    thenColor = new formattingSettings.ColorPicker({
+        name: "thenColor",
+        displayName: "Then Value Color",
+        description: "Colour of the Then value text below the Then dot",
+        value: { value: "#5e5d5a" },
+        instanceKind: ConstantOrRule
+    });
+
+    // Variance/delta badge text — reuses existing "badgeFontSize". Bold
+    // defaults true (matches the previously-hardcoded font-weight:700).
+    private badgeFontBundle = makeFontControl("badge", { fontSize: 11, bold: true });
+    badgeFontFamily = this.badgeFontBundle.fontFamily;
+    badgeFontSize = this.badgeFontBundle.fontSize;
+    badgeBold = this.badgeFontBundle.bold;
+    badgeItalic = this.badgeFontBundle.italic;
+    badgeUnderline = this.badgeFontBundle.underline;
+    badgeFont = this.badgeFontBundle.control;
+
+    // Override colour for the badge/delta text — same "empty string = use
+    // the derived direction colour" idiom already established by this
+    // file's own endpointLabelColor property (line ~199 below), so the
+    // default (empty) preserves the existing dirColor-per-row behaviour
+    // exactly (D-06).
+    badgeColor = new formattingSettings.ColorPicker({
+        name: "badgeColor",
+        displayName: "Badge Text Color Override",
+        description: "Override colour for the variance/delta badge text. Leave empty to keep the direction colour (positive/negative/neutral).",
+        value: { value: "" },
+        instanceKind: ConstantOrRule
     });
 
     nowLabel = new formattingSettings.TextInput({
@@ -197,11 +254,14 @@ class LabelSettingsCard extends FormattingSettingsCard {
     name: string = "labelSettings";
     displayName: string = "Labels";
     slices: Array<FormattingSettingsSlice> = [
-        this.categoryFontSize,
+        this.categoryFont,
         this.categoryColor,
-        this.valueFontSize,
+        this.valueFont,
         this.valueColor,
-        this.badgeFontSize,
+        this.thenFont,
+        this.thenColor,
+        this.badgeFont,
+        this.badgeColor,
         this.nowLabel,
         this.thenLabel,
         this.showLabels,
@@ -303,6 +363,7 @@ class AxisSettingsCard extends FormattingSettingsCard {
 }
 
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
+    titleSettings = new TitleSettings();
     comparisonCard = new ComparisonSettingsCard();
     labelCard = new LabelSettingsCard();
     styleCard = new StyleSettingsCard();
@@ -328,5 +389,5 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
         this.background.transparency.value = 100;
     }
 
-    cards = [this.comparisonCard, this.labelCard, this.styleCard, this.axisCard, this.background];
+    cards = [this.titleSettings, this.comparisonCard, this.labelCard, this.styleCard, this.axisCard, this.background];
 }
