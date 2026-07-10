@@ -26,18 +26,18 @@ import { formatValue, clamp } from "./utils";
 
 import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
-import { toRgba } from "../../_shared/formatting/colorHelpers";
+import { toRgba } from "./shared/colorHelpers";
 
 // v3 appearance engine (frozen, 01-15) — band engine (direction-law
 // tokens + the violet target/accent markers), design tokens (dim-theme
 // surfaces + channel-linear mix()), the corner-bracket card signature,
 // the capped/reduced-motion-aware settle() helper, and the single HC
 // fallback rule. Consumed read-only (D-11).
-import { Theme, accentToken, targetToken } from "../../_shared/formatting/bandEngine";
-import { mix, surfaceTokens, TABULAR_NUMS } from "../../_shared/formatting/designTokens";
-import { makeCornerBrackets, CardSignatureHandle } from "../../_shared/formatting/cardSignature";
-import { settle, MOTION_MAX_MS } from "../../_shared/formatting/motion";
-import { applyHighContrast } from "../../_shared/formatting/highContrast";
+import { Theme, accentToken, targetToken } from "./shared/bandEngine";
+import { mix, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
+import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
+import { settle, MOTION_MAX_MS } from "./shared/motion";
+import { applyHighContrast } from "./shared/highContrast";
 
 interface MetricRow {
     category: string;
