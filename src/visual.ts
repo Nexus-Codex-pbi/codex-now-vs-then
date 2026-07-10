@@ -36,6 +36,7 @@ import { toRgba } from "./shared/colorHelpers";
 import { Theme, accentToken, targetToken } from "./shared/bandEngine";
 import { mix, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
+import { applyCardSignature } from "./shared/cardSignatureSettings";
 import { settle, MOTION_MAX_MS } from "./shared/motion";
 import { applyHighContrast } from "./shared/highContrast";
 
@@ -215,8 +216,10 @@ export class Visual implements IVisual {
             const hc = applyHighContrast(colorPalette, { fallbackColor: accentToken(theme) });
 
             // Corner-bracket re-tint each update (created once in the constructor).
-            this.cornerSignature?.update(hc.active ? hc.color : accentToken(theme), {
-                variant: "cornerBracket",
+            applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
+                autoHex: accentToken(theme),
+                hcActive: hc.active,
+                hcColor: hc.color,
                 mirror: true,
                 glowMix: hc.active ? 0 : (theme === "dark" ? 55 : 0),
                 muted: false,
@@ -227,8 +230,8 @@ export class Visual implements IVisual {
             const rows = this.parseData(dataView);
             if (rows.length === 0) {
                 this.titleEl.style.display = "none";
-                this.cornerSignature?.update(hc.active ? hc.color : accentToken(theme), {
-                    variant: "cornerBracket", mirror: true, muted: true,
+                applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
+                    autoHex: accentToken(theme), hcActive: hc.active, hcColor: hc.color, mirror: true, muted: true,
                 });
                 this.renderEmpty(width, height, theme);
                 this.eventService.renderingFinished(options);
@@ -251,9 +254,7 @@ export class Visual implements IVisual {
             positiveColorSlice.selector = dataViewWildcard.createDataViewWildcardSelector(
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
-            positiveColorSlice.altConstantSelector = rows[0]?.selectionId
-                ? rows[0].selectionId.getSelector()
-                : undefined;
+            positiveColorSlice.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
             this.positiveColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "comparisonSettings", propertyName: "positiveColor" },
@@ -269,9 +270,7 @@ export class Visual implements IVisual {
             valueColorSlice.selector = dataViewWildcard.createDataViewWildcardSelector(
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
-            valueColorSlice.altConstantSelector = rows[0]?.selectionId
-                ? rows[0].selectionId.getSelector()
-                : undefined;
+            valueColorSlice.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
             this.valueColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "labelSettings", propertyName: "valueColor" },

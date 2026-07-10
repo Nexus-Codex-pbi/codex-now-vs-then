@@ -11,6 +11,7 @@ import FormattingSettingsModel = formattingSettings.Model;
 import { BackgroundSettings } from "./shared/backgroundSettings";
 import { TitleSettings } from "./shared/titleSettings";
 import { alignSelfFor, textAlignFor, makeFontControl } from "./shared/textFormatting";
+import { CardSignatureSettings } from "./shared/cardSignatureSettings";
 
 const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
 
@@ -411,6 +412,7 @@ class AxisSettingsCard extends FormattingSettingsCard {
 }
 
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
+    cardSignature = new CardSignatureSettings();
     titleSettings = new TitleSettings();
     comparisonCard = new ComparisonSettingsCard();
     labelCard = new LabelSettingsCard();
@@ -437,5 +439,7 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
         this.background.transparency.value = 100;
     }
 
-    cards = [this.titleSettings, this.comparisonCard, this.labelCard, this.styleCard, this.axisCard, this.background];
+    cards = [this.titleSettings, this.comparisonCard, this.labelCard, this.styleCard, this.axisCard, this.background,
+        this.cardSignature
+    ];
 }

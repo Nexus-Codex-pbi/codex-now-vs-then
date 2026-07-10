@@ -102,6 +102,60 @@ function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opt
     }
 
     el.style.display = "";
+
+    if (opts.variant === "glassTube") {
+        // A real tube, not a bordered L (the border version was visually
+        // identical to cornerBracket — Neil, 2026-07-10). Two rounded
+        // translucent arms with a fade-out gradient, neon glow, and a
+        // specular highlight running along each arm. DOM API only.
+        el.style.top = el.style.right = el.style.bottom = el.style.left = "";
+        if (corner === "tl") { el.style.top = "0"; el.style.left = "0"; }
+        else { el.style.bottom = "0"; el.style.right = "0"; }
+        const tubeW = opts.thickness + 3;
+        const glow = opts.muted || opts.glowMix === 0 ? "none" : `0 0 8px color-mix(in srgb, ${color} ${Math.max(opts.glowMix, 35)}%, transparent)`;
+        const mkArm = (horizontal: boolean): HTMLElement => {
+            const arm = document.createElement("div");
+            arm.style.position = "absolute";
+            arm.style.pointerEvents = "none";
+            arm.style.borderRadius = "99px";
+            const fadeDir = horizontal
+                ? (corner === "tl" ? "90deg" : "270deg")
+                : (corner === "tl" ? "180deg" : "0deg");
+            arm.style.background = `linear-gradient(${fadeDir}, ${color}, color-mix(in srgb, ${color} 55%, transparent) 70%, transparent)`;
+            arm.style.boxShadow = glow;
+            if (horizontal) {
+                arm.style.height = `${tubeW}px`;
+                arm.style.left = "0"; arm.style.right = "0";
+                arm.style[corner === "tl" ? "top" : "bottom"] = "0";
+            } else {
+                arm.style.width = `${tubeW}px`;
+                arm.style.top = "0"; arm.style.bottom = "0";
+                arm.style[corner === "tl" ? "left" : "right"] = "0";
+            }
+            // Specular highlight strip along the arm (the "glass").
+            const spec = document.createElement("div");
+            spec.style.position = "absolute";
+            spec.style.pointerEvents = "none";
+            spec.style.borderRadius = "99px";
+            spec.style.background = horizontal
+                ? "linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0) 65%)"
+                : "linear-gradient(90deg, rgba(255,255,255,0.85), rgba(255,255,255,0) 65%)";
+            if (horizontal) {
+                spec.style.left = "8%"; spec.style.right = "35%";
+                spec.style.top = "1px"; spec.style.height = `${Math.max(1, Math.floor(tubeW / 3))}px`;
+            } else {
+                spec.style.top = "8%"; spec.style.bottom = "35%";
+                spec.style.left = "1px"; spec.style.width = `${Math.max(1, Math.floor(tubeW / 3))}px`;
+            }
+            arm.appendChild(spec);
+            return arm;
+        };
+        el.appendChild(mkArm(true));
+        el.appendChild(mkArm(false));
+        el.style.filter = "none"; // glow lives on the arms' box-shadow
+        return;
+    }
+
     if (corner === "tl") {
         el.style.top = "0";
         el.style.left = "0";
@@ -114,27 +168,6 @@ function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opt
         el.style.borderBottom = `${opts.thickness}px solid ${color}`;
         el.style.borderRight = `${opts.thickness}px solid ${color}`;
         el.style.borderRadius = `0 0 ${opts.cardRadius}px 0`;
-    }
-
-    if (opts.variant === "glassTube" && !opts.muted) {
-        // Specular streak: a thin inner highlight strip, DOM-built (no markup string).
-        const streak = document.createElement("div");
-        streak.style.position = "absolute";
-        streak.style.pointerEvents = "none";
-        streak.style.width = "1.5px";
-        streak.style.borderRadius = "99px";
-        streak.style.background =
-            "linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.15) 55%, rgba(255,255,255,0.45))";
-        if (corner === "tl") {
-            streak.style.left = "1px";
-            streak.style.top = "20%";
-            streak.style.bottom = "20%";
-        } else {
-            streak.style.right = "1px";
-            streak.style.top = "20%";
-            streak.style.bottom = "20%";
-        }
-        el.appendChild(streak);
     }
 }
 
