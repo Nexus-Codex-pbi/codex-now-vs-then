@@ -279,11 +279,15 @@ class StyleSettingsCard extends FormattingSettingsCard {
         instanceKind: ConstantOrRule
     });
 
+    // v2 board default (D-16): the frozen v3 engine's own dim-track token
+    // (SURFACE_TOKENS.dark.track in designTokens.ts) so a brand-new report
+    // lands on the "dim track" language the board specifies; any report
+    // that already set this ColorPicker keeps its own saved value untouched.
     trackColor = new formattingSettings.ColorPicker({
         name: "trackColor",
         displayName: "Track Color",
         description: "Background track behind the dumbbell connector",
-        value: { value: "#eee9dc" },
+        value: { value: "#1c1c3a" },
         instanceKind: ConstantOrRule
     });
 
@@ -351,6 +355,46 @@ class AxisSettingsCard extends FormattingSettingsCard {
         value: ""
     });
 
+    // v2 board additions (LOOK-03, additive-only, D-16 default-off-behaviour
+    // unchanged for old reports since none of these three properties
+    // previously existed):
+    showTargetRange = new formattingSettings.ToggleSwitch({
+        name: "showTargetRange",
+        displayName: "Show Target Range",
+        description: "Show the per-row target range band (requires Target Range Low/High fields)",
+        value: true
+    });
+
+    // Numeric axis ticks + faint vertical gridlines (Shared axis mode
+    // only — Independent per-category has no single scale to tick).
+    // Separate from showAxisTitles (the X/Y caption text) per the design
+    // board's own two distinct toggles.
+    showAxisGridlines = new formattingSettings.ToggleSwitch({
+        name: "showAxisGridlines",
+        displayName: "Show Axis Gridlines",
+        description: "Show numeric axis tick labels and faint vertical gridlines (Shared axis mode only)",
+        value: true
+    });
+
+    // Blank = auto (existing shared/perCategory scale computation, D-06
+    // render-nothing-default parity) — same "empty string = opt-in override"
+    // idiom as labelCard.badgeColor/endpointLabelColor above.
+    customAxisMin = new formattingSettings.TextInput({
+        name: "customAxisMin",
+        displayName: "Custom Axis Min",
+        description: "Manual scale minimum. Leave blank to auto-compute from the bound data.",
+        placeholder: "auto",
+        value: ""
+    });
+
+    customAxisMax = new formattingSettings.TextInput({
+        name: "customAxisMax",
+        displayName: "Custom Axis Max",
+        description: "Manual scale maximum. Leave blank to auto-compute from the bound data.",
+        placeholder: "auto",
+        value: ""
+    });
+
     name: string = "axisSettings";
     displayName: string = "Axis";
     slices: Array<FormattingSettingsSlice> = [
@@ -358,7 +402,11 @@ class AxisSettingsCard extends FormattingSettingsCard {
         this.perCategoryPadding,
         this.showAxisTitles,
         this.xAxisTitle,
-        this.yAxisTitle
+        this.yAxisTitle,
+        this.showTargetRange,
+        this.showAxisGridlines,
+        this.customAxisMin,
+        this.customAxisMax
     ];
 }
 

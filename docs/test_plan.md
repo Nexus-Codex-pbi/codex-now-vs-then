@@ -80,3 +80,37 @@
 ## 13. Context Menu Regression — Post Title/Text Change (T-11-01)
 - [ ] Right-click on empty space/padding within the visual (not on a row, not on the title) still opens the Power BI context menu after this plan's title/text DOM additions
 - [ ] The new title element does not sit as a pointer-events overlay over empty space (title is an in-flow scrollContainer child, not an absolutely-positioned layer, and sits above — not overlapping — the SVG chart)
+
+## 14. v2 Board Look — Hollow Ring / Glow Dot Dumbbell (LOOK-03)
+- [ ] The "then" (baseline) dot renders as a hollow ring: a muted/unit-token stroke over the card-surface fill colour — never direction-tinted
+- [ ] The "now" (current) dot renders beveled: a radial-gradient fill (light highlight top-left, direction colour mid-stop, darkened edge) with a soft glow drop-shadow on dark canvas (glow suppressed on light canvas and under HC)
+- [ ] The now-dot always visually dominates the hollow then-ring, per the design language ("the beveled, glowing 'now' dot always dominates")
+- [ ] High contrast: both dots swap to the system foreground colour, glow disabled, then-dot ring width matches the shared 2px HC border rule
+
+## 15. v2 Board Look — Connector Direction Colour + Track (LOOK-03)
+- [ ] The connector between Then and Now renders in the existing Positive/Negative/Neutral Colour (direction law: improving = positive colour, declining = negative colour, matching the suite-wide waterfall convention) and settles at 55% opacity (reads as "travel", not a solid bar)
+- [ ] The background track renders at full strength using the new v2 dim-track default (`#1c1c3a`) when unset; a report that already set a custom Track Color keeps that exact colour (D-16)
+
+## 16. v2 Board Look — Per-Row Target Range (LOOK-03)
+- [ ] Binding both Target Range Low and Target Range High data roles renders a translucent violet band (the shared target token, never a band/direction colour) with hairline edges behind the dumbbell track for that row
+- [ ] A row with only one (or neither) of Target Range Low/High bound renders no range band (matches the design's own no-data-bound state)
+- [ ] The "Show Target Range" toggle (Axis card, default ON) hides the band suite-wide when off
+- [ ] A report with neither field bound (the common case, most existing reports) renders identically to pre-plan behaviour — zero visual regression
+
+## 17. v2 Board Look — Custom Axis Min/Max + Numeric Gridlines (LOOK-03)
+- [ ] Custom Axis Min/Max (Axis card, both blank by default = auto) override the Shared-mode scale domain only when BOTH parse to valid numbers with max > min; leaving either blank preserves the existing auto-computed domain exactly (D-06)
+- [ ] Show Axis Gridlines (default ON) renders faint vertical gridlines + numeric tick labels (tabular numerals) across the Shared-mode scale, using d3's own "nice" tick generator
+- [ ] Gridlines/ticks do not render in Independent-per-category axis mode (no single scale to tick against — matches the Progress Bar Card precedent of confining new v2 chrome to the mode the design board specifies)
+- [ ] High contrast: gridlines and tick labels resolve to the system foreground colour
+
+## 18. v2 Board Look — Motion + Corner Signature (LOOK-03)
+- [ ] The dumbbell entrance/settle animation never exceeds 400ms end-to-end regardless of a user-configured Animation Duration greater than that (capped via the shared MOTION_MAX_MS constant)
+- [ ] With `prefers-reduced-motion: reduce` active, the whole row choreography (connector, dots, labels, values, badge) renders instantly with no animation
+- [ ] The Then/Now value text settles via the shared settle() helper (a distinct, literal call to the frozen motion module) on data change
+- [ ] An accent-cyan corner-bracket signature appears at the card's top-left/bottom-right corners, muted (dimmed, no glow) on the empty-data state
+- [ ] Corner bracket colour swaps to the system foreground colour under high contrast, with glow disabled
+
+## 19. D-16 Override Resolution (LOOK-03)
+- [ ] A report with Positive/Negative/Neutral Color explicitly set to a custom hex still renders that exact colour on the connector, now-dot bevel, and delta chip (fx and static both still resolve)
+- [ ] A report with a custom Track Color set still renders that exact colour, at full opacity (no double-dimming)
+- [ ] Every new v2 property (Show Target Range, Show Axis Gridlines, Custom Axis Min/Max) defaults to the v2 board look; toggling any off restores the pre-v2 rendering for that specific feature only

@@ -45,6 +45,28 @@
       "name": "sortOrder",
       "kind": "Measure",
       "description": "Optional numeric field to control display order"
+    },
+    {
+      "displayName": "Target Range Low",
+      "name": "targetRangeLow",
+      "kind": "Measure",
+      "requiredTypes": [
+        {
+          "numeric": true
+        }
+      ],
+      "description": "Optional lower bound of the per-row target range band"
+    },
+    {
+      "displayName": "Target Range High",
+      "name": "targetRangeHigh",
+      "kind": "Measure",
+      "requiredTypes": [
+        {
+          "numeric": true
+        }
+      ],
+      "description": "Optional upper bound of the per-row target range band"
     }
   ],
   "objects": {
@@ -451,6 +473,30 @@
             "text": true
           },
           "displayName": "Y Axis Title"
+        },
+        "showTargetRange": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Show Target Range"
+        },
+        "showAxisGridlines": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Show Axis Gridlines"
+        },
+        "customAxisMin": {
+          "type": {
+            "text": true
+          },
+          "displayName": "Custom Axis Min (blank = auto)"
+        },
+        "customAxisMax": {
+          "type": {
+            "text": true
+          },
+          "displayName": "Custom Axis Max (blank = auto)"
         }
       },
       "displayName": "Axis Settings"
@@ -567,6 +613,12 @@
           },
           "sortOrder": {
             "max": 1
+          },
+          "targetRangeLow": {
+            "max": 1
+          },
+          "targetRangeHigh": {
+            "max": 1
           }
         }
       ],
@@ -606,6 +658,16 @@
             {
               "bind": {
                 "to": "sortOrder"
+              }
+            },
+            {
+              "bind": {
+                "to": "targetRangeLow"
+              }
+            },
+            {
+              "bind": {
+                "to": "targetRangeHigh"
               }
             }
           ]

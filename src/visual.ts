@@ -28,6 +28,17 @@ import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 import { toRgba } from "../../_shared/formatting/colorHelpers";
 
+// v3 appearance engine (frozen, 01-15) — band engine (direction-law
+// tokens + the violet target/accent markers), design tokens (dim-theme
+// surfaces + channel-linear mix()), the corner-bracket card signature,
+// the capped/reduced-motion-aware settle() helper, and the single HC
+// fallback rule. Consumed read-only (D-11).
+import { Theme, accentToken, targetToken } from "../../_shared/formatting/bandEngine";
+import { mix, surfaceTokens, TABULAR_NUMS } from "../../_shared/formatting/designTokens";
+import { makeCornerBrackets, CardSignatureHandle } from "../../_shared/formatting/cardSignature";
+import { settle, MOTION_MAX_MS } from "../../_shared/formatting/motion";
+import { applyHighContrast } from "../../_shared/formatting/highContrast";
+
 interface MetricRow {
     category: string;
     nowValue: number;
@@ -40,6 +51,37 @@ interface MetricRow {
     direction: "positive" | "negative" | "neutral";
     selectionId: ISelectionId | null;
     categoryIndex: number;
+    targetRangeLow: number | null;
+    targetRangeHigh: number | null;
+}
+
+/** Luminance-based theme pick (matches the pbiKpiCard/pbiProgressBarCard
+ * v3 pilots' own convention) — only trusts bgHex as a real signal when
+ * the background layer is actually visible (transparency < 100);
+ * otherwise defaults dark (this visual's pre-existing default is fully
+ * transparent, D-06). */
+function themeFor(hex: string, visible: boolean): Theme {
+    if (!visible) return "dark";
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})/i.exec(hex || "");
+    if (!m) return "dark";
+    const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.55 ? "light" : "dark";
+}
+
+/** Mirrors motion.ts's own `prefers-reduced-motion` gate for this
+ * visual's bespoke multi-element stagger choreography (connector +
+ * then/now dots + labels + badge), which doesn't map onto a single
+ * settle() keyframe call the way a text-only value swap does. The
+ * now/then VALUE TEXT settle below does use settle() directly. */
+function prefersReducedMotion(): boolean {
+    try {
+        return typeof window !== "undefined"
+            && typeof window.matchMedia === "function"
+            && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+        return false;
+    }
 }
 
 export class Visual implements IVisual {
@@ -66,6 +108,17 @@ export class Visual implements IVisual {
     // Conditional formatting (fx) state — Now Value Colour (TEXT-02)
     private valueColorHelper: ColorHelper | null = null;
 
+    // v3 card signature — one accent-tinted corner-bracket pair for the
+    // whole card (this is a multi-row list visual, like Progress Bar
+    // Card — the accent cyan is the card's own identity, distinct from
+    // any row's direction colour).
+    private cornerSignature: CardSignatureHandle | null = null;
+
+    // Gradient-def bookkeeping so the beveled "now" dot's SVG
+    // <radialGradient> defs are only (re)created once per row per
+    // update(), not per attribute read.
+    private gradientDefs: Selection<SVGDefsElement, unknown, null, undefined>;
+
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
         this.target = options.element;
@@ -80,7 +133,8 @@ export class Visual implements IVisual {
             .classed("now-vs-then-scroll", true)
             .style("width", "100%")
             .style("height", "100%")
-            .style("overflow", "auto");
+            .style("overflow", "auto")
+            .style("position", "relative");
 
         // Context menu. Listener on target AND on the inner scrollContainer —
         // the scrollContainer's padding/scroll-gutter regions don't bubble
@@ -108,6 +162,19 @@ export class Visual implements IVisual {
         this.svg = this.scrollContainer
             .append("svg")
             .classed("now-vs-then-svg", true);
+
+        this.gradientDefs = this.svg.append("defs") as unknown as
+            Selection<SVGDefsElement, unknown, null, undefined>;
+
+        // Corner-bracket card signature — accent-tinted (the card's own
+        // cyan identity, not any single row's direction colour), appended
+        // to the scroll container (an HTML overlay above the SVG,
+        // pointer-events:none) so it paints above every row.
+        this.cornerSignature = makeCornerBrackets(
+            this.scrollContainer.node() as HTMLElement,
+            accentToken("dark"),
+            { variant: "cornerBracket", mirror: true }
+        );
     }
 
     public update(options: VisualUpdateOptions): void {
@@ -132,15 +199,38 @@ export class Visual implements IVisual {
             // Set viewport size on scroll container
             this.scrollContainer.style("width", width + "px").style("height", height + "px");
 
-            // Clear
+            // Clear (re-creates <defs> below — selectAll("*") also removes it)
             this.svg.selectAll("*").remove();
+            this.gradientDefs = this.svg.append("defs") as unknown as
+                Selection<SVGDefsElement, unknown, null, undefined>;
+
+            // ─── v3 theme pick + single HC fallback rule, computed once
+            // and reused everywhere colour is resolved below (§8, D-16:
+            // this visual's own Background card is the source of truth
+            // for whether the card reads as a dark or light surface).
+            const bgSettingsForTheme = this.formattingSettings.background;
+            const bgHexForTheme = bgSettingsForTheme.backgroundColor.value?.value ?? "#ffffff";
+            const bgTransparencyForTheme = bgSettingsForTheme.transparency.value ?? 100;
+            const theme: Theme = themeFor(bgHexForTheme, bgTransparencyForTheme < 100);
+            const hc = applyHighContrast(colorPalette, { fallbackColor: accentToken(theme) });
+
+            // Corner-bracket re-tint each update (created once in the constructor).
+            this.cornerSignature?.update(hc.active ? hc.color : accentToken(theme), {
+                variant: "cornerBracket",
+                mirror: true,
+                glowMix: hc.active ? 0 : (theme === "dark" ? 55 : 0),
+                muted: false,
+            });
 
             this.categoricalCategories = dataView?.categorical?.categories?.[0];
 
             const rows = this.parseData(dataView);
             if (rows.length === 0) {
                 this.titleEl.style.display = "none";
-                this.renderEmpty(width, height);
+                this.cornerSignature?.update(hc.active ? hc.color : accentToken(theme), {
+                    variant: "cornerBracket", mirror: true, muted: true,
+                });
+                this.renderEmpty(width, height, theme);
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -199,7 +289,7 @@ export class Visual implements IVisual {
             const xAxisTitleText = axisSettings.xAxisTitle.value || "";
             const yAxisTitleText = axisSettings.yAxisTitle.value || "";
 
-            this.renderDumbbell(rows, width, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText);
+            this.renderDumbbell(rows, width, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText, theme, hc);
 
             // Size SVG to actual content so scroll container shows scrollbars when needed
             this.svg.attr("width", width).attr("height", this.computeContentHeight(rows));
@@ -284,7 +374,9 @@ export class Visual implements IVisual {
                 rowDirection,
                 direction,
                 selectionId,
-                categoryIndex: r
+                categoryIndex: r,
+                targetRangeLow: getNum("targetRangeLow"),
+                targetRangeHigh: getNum("targetRangeHigh")
             });
         }
 
@@ -325,11 +417,19 @@ export class Visual implements IVisual {
             contentH += catFontSize + 8;
         }
 
+        // v2 numeric axis tick-label row (Shared axis mode only) — mirrors
+        // pbiProgressBarCard's own "axis caption" extra-height convention.
+        const axisModeForHeight = (axisSettings?.axisMode?.value?.value as string) || "shared";
+        if (axisSettings?.showAxisGridlines?.value && axisModeForHeight === "shared") {
+            contentH += 18;
+        }
+
         return contentH;
     }
 
     private renderDumbbell(rows: MetricRow[], width: number, animate: boolean,
-        showAxisTitles: boolean = false, xAxisTitleText: string = "", yAxisTitleText: string = ""): void {
+        showAxisTitles: boolean = false, xAxisTitleText: string = "", yAxisTitleText: string = "",
+        theme: Theme = "dark", hc: ReturnType<typeof applyHighContrast> = applyHighContrast(null)): void {
         const comp = this.formattingSettings.comparisonCard;
         const lbl = this.formattingSettings.labelCard;
         const style = this.formattingSettings.styleCard;
@@ -339,8 +439,18 @@ export class Visual implements IVisual {
         let neutralColor = comp.neutralColor.value.value;
         const connectorWidth = Math.max(1, comp.connectorWidth.value);
         const dotRadius = Math.max(3, comp.dotRadius.value);
-        const animDuration = Math.max(0, comp.animationDuration.value);
-        const staggerDelay = Math.max(0, comp.staggerDelay.value);
+        // v3 motion (§6): the now-dot's travel settles ONCE, capped at
+        // MOTION_MAX_MS (400ms) regardless of the user's own configured
+        // Animation Duration, and skipped entirely under
+        // prefers-reduced-motion — mirrors motion.ts's own settle()
+        // contract for this visual's bespoke multi-element (connector +
+        // both dots + labels + badge) stagger choreography, which doesn't
+        // map onto a single settle() keyframe call the way a text-only
+        // value swap does (the now/then value TEXT settle below calls
+        // settle() directly).
+        const reducedMotion = prefersReducedMotion();
+        const animDuration = reducedMotion ? 0 : Math.min(Math.max(0, comp.animationDuration.value), MOTION_MAX_MS);
+        const staggerDelay = reducedMotion ? 0 : Math.max(0, comp.staggerDelay.value);
         const showBadge = comp.showVarianceBadge.value;
         const varianceFmt = (comp.varianceFormat.value?.value as string) || "percent";
         const valueFmt = (comp.valueFormat.value?.value as string) || "auto";
@@ -456,7 +566,17 @@ export class Visual implements IVisual {
         const perCatPadPct = clamp(axisCard.perCategoryPadding.value, 0, 200) / 100;
         const xRange: [number, number] = [dotRadius + 2, chartWidth - dotRadius - 2];
 
+        // Custom axis min/max (blank = auto, D-06): both must parse to a
+        // finite pair with max > min, otherwise falls back to the
+        // existing auto-computed domain unchanged.
+        const customMinRaw = parseFloat(axisCard.customAxisMin.value || "");
+        const customMaxRaw = parseFloat(axisCard.customAxisMax.value || "");
+        const hasCustomDomain = Number.isFinite(customMinRaw) && Number.isFinite(customMaxRaw) && customMaxRaw > customMinRaw;
+
         const sharedScale = (() => {
+            if (hasCustomDomain) {
+                return scaleLinear().domain([customMinRaw, customMaxRaw]).range(xRange);
+            }
             const allValues = rows.flatMap(r => [r.nowValue, r.thenValue]);
             const minVal = Math.min(...allValues);
             const maxVal = Math.max(...allValues);
@@ -483,6 +603,27 @@ export class Visual implements IVisual {
             if (effectiveFmt === "number") return formatValue(v, "none", decimals);
             return formatValue(v, "auto", decimals);
         };
+
+        // ── v2 numeric axis gridlines (Shared axis mode only — Independent
+        // per-category has no single scale to tick against; matches the
+        // Progress Bar Card precedent of confining new v2 chrome to the
+        // layout/mode the design board actually specifies). Rendered
+        // BEFORE the row list so tracks/dots paint above the faint lines.
+        const gridRowsHeight = rows.length * totalRowHeight;
+        const showGridlines = axisCard.showAxisGridlines.value && axisMode === "shared";
+        const gridTickValues = showGridlines ? sharedScale.ticks(6) : [];
+        if (showGridlines) {
+            const gridColor = this.isHighContrast ? this.highContrastForeground : surfaceTokens(theme).border;
+            gridTickValues.forEach((v) => {
+                this.svg.append("line")
+                    .classed("axis-gridline", true)
+                    .attr("x1", chartLeft + sharedScale(v)).attr("x2", chartLeft + sharedScale(v))
+                    .attr("y1", margin.top).attr("y2", margin.top + gridRowsHeight)
+                    .attr("stroke", gridColor)
+                    .attr("stroke-width", 1)
+                    .attr("opacity", this.isHighContrast ? 1 : 0.7);
+            });
+        }
 
         // Render each row
         rows.forEach((row, idx) => {
@@ -554,7 +695,11 @@ export class Visual implements IVisual {
             // ── Dumbbell area ──
             const dumbbellY = catFontSize + 8 + dumbbellHeight / 2;
 
-            // Background track
+            // Background track — the v2 board's own "dim track" default
+            // (settings.ts trackColor now ships the v3 dim-surface token)
+            // means this no longer needs an extra 0.5 alpha multiply on
+            // top; a user-set bright override still reads at full
+            // strength (D-16).
             g.append("rect")
                 .attr("x", chartLeft)
                 .attr("y", dumbbellY - trackHeight / 2)
@@ -562,10 +707,37 @@ export class Visual implements IVisual {
                 .attr("height", trackHeight)
                 .attr("rx", trackHeight / 2)
                 .attr("fill", trackColor)
-                .attr("opacity", 0.5);
+                .attr("opacity", 1);
 
             // Positions — enforce minimum separation so dots don't overlap
             const rowScale = scaleForRow(row);
+
+            // ── Per-row target range band (violet target token, §2) ──
+            // Only when BOTH Target Range Low/High are bound for this row
+            // and the toggle is on — absent data renders nothing (matches
+            // the design's own norange/no-data-bound behaviour).
+            if (axisCard.showTargetRange.value && row.targetRangeLow !== null && row.targetRangeHigh !== null) {
+                const rngLo = chartLeft + rowScale(Math.min(row.targetRangeLow, row.targetRangeHigh));
+                const rngHi = chartLeft + rowScale(Math.max(row.targetRangeLow, row.targetRangeHigh));
+                const tgt = targetToken(theme);
+                g.append("rect")
+                    .attr("x", rngLo)
+                    .attr("y", dumbbellY - dumbbellHeight / 2 + 2)
+                    .attr("width", Math.max(0, rngHi - rngLo))
+                    .attr("height", dumbbellHeight - 4)
+                    .attr("rx", 3)
+                    .attr("fill", tgt)
+                    .attr("opacity", 0.15);
+                [rngLo, rngHi].forEach((x) => {
+                    g.append("line")
+                        .attr("x1", x).attr("x2", x)
+                        .attr("y1", dumbbellY - dumbbellHeight / 2 + 2)
+                        .attr("y2", dumbbellY + dumbbellHeight / 2 - 2)
+                        .attr("stroke", tgt)
+                        .attr("stroke-width", 1.5);
+                });
+            }
+
             const rawThenX = chartLeft + rowScale(row.thenValue);
             const rawNowX = chartLeft + rowScale(row.nowValue);
             const minSep = dotRadius * 3 + 4; // minimum pixel gap between dot centres
@@ -588,7 +760,8 @@ export class Visual implements IVisual {
             const rightX = Math.max(thenX, nowX);
             const dotsClose = Math.abs(nowX - thenX) < 60;
 
-            // ── Animated connector line ──
+            // ── Animated connector line — opacity settles at 55% (§2 board
+            // note: "reads as travel, not a bar") ──
             const connector = g.append("line")
                 .attr("y1", dumbbellY).attr("y2", dumbbellY)
                 .attr("stroke", dirColor)
@@ -602,12 +775,12 @@ export class Visual implements IVisual {
                     .transition()
                     .delay(delay)
                     .duration(dur * 0.3)
-                    .attr("opacity", 1)
+                    .attr("opacity", 0.55)
                     .transition()
                     .duration(dur * 0.7)
                     .attr("x1", leftX).attr("x2", rightX);
             } else {
-                connector.attr("x1", leftX).attr("x2", rightX);
+                connector.attr("x1", leftX).attr("x2", rightX).attr("opacity", 0.55);
             }
 
             // ── Direction arrow on connector (midpoint) ──
@@ -632,12 +805,17 @@ export class Visual implements IVisual {
                 }
             }
 
-            // ── Then dot ──
+            // ── Then dot: HOLLOW RING (baseline) — a muted/unit-token
+            // stroke on the card surface colour, deliberately NOT
+            // direction-tinted, so the beveled glow "now" dot always
+            // dominates (§2 board language). ──
+            const thenRingColor = hc.active ? hc.color : surfaceTokens(theme).muted;
+            const thenFillColor = hc.active ? hc.background : surfaceTokens(theme).card;
             const thenDot = g.append("circle")
                 .attr("cx", thenX).attr("cy", dumbbellY)
                 .attr("r", dotRadius)
-                .attr("fill", "#ffffff")
-                .attr("stroke", dirColor)
+                .attr("fill", thenFillColor)
+                .attr("stroke", thenRingColor)
                 .attr("stroke-width", 2.5);
 
             if (dur > 0) {
@@ -646,13 +824,36 @@ export class Visual implements IVisual {
                     .attr("r", dotRadius).attr("opacity", 1);
             }
 
-            // ── Now dot (filled, slightly larger) ──
+            // ── Now dot: beveled, band/direction-tinted, glowing —
+            // gauge-hub language flattened to a chart (§2/§4). A per-row
+            // <radialGradient> def (id keyed by row index — the colour
+            // can vary per row via the fx-resolved dirColor) gives the
+            // "circle at 35% 30%" bevel highlight. `this.gradientDefs`
+            // is torn down and recreated fresh at the top of every
+            // update() (svg.selectAll("*").remove() also clears <defs>),
+            // so each row's gradient is (re)built here every render — no
+            // stale defs to reuse. HC swaps to a flat system-slot fill
+            // with no glow (§8).
+            const nowGradId = `nvt-now-grad-${idx}`;
+            if (!hc.active) {
+                const grad = this.gradientDefs.append("radialGradient")
+                    .attr("id", nowGradId)
+                    .attr("cx", "35%").attr("cy", "30%").attr("r", "75%");
+                grad.append("stop").attr("offset", "0%").attr("stop-color", mix(dirColor, "#ffffff", 0.35));
+                grad.append("stop").attr("offset", "55%").attr("stop-color", dirColor);
+                grad.append("stop").attr("offset", "100%").attr("stop-color", mix(dirColor, "#000000", 0.55));
+            }
+            const nowFill = hc.active ? hc.color : `url(#${nowGradId})`;
+            const glowMix = hc.active ? 0 : (theme === "dark" ? 55 : 0);
             const nowDot = g.append("circle")
                 .attr("cx", nowX).attr("cy", dumbbellY)
                 .attr("r", dotRadius + 1)
-                .attr("fill", dirColor)
-                .attr("stroke", "#ffffff")
-                .attr("stroke-width", 2);
+                .attr("fill", nowFill)
+                .attr("stroke", hc.active ? hc.color : "#ffffff")
+                .attr("stroke-width", hc.active ? hc.borderWidth : 2)
+                .style("filter", glowMix > 0
+                    ? `drop-shadow(0 0 6px color-mix(in srgb, ${dirColor} ${glowMix}%, transparent))`
+                    : "none");
 
             if (dur > 0) {
                 nowDot.attr("r", 0).attr("opacity", 0)
@@ -721,6 +922,7 @@ export class Visual implements IVisual {
                 .attr("fill", thenValueColor)
                 .attr("opacity", 0.7)
                 .attr("font-family", thenFontFamily)
+                .style("font-feature-settings", TABULAR_NUMS)
                 .text(fmtVal(row.thenValue));
 
             // Now value: anchor away from Then. Colour resolves via fx
@@ -740,11 +942,25 @@ export class Visual implements IVisual {
                 .attr("text-decoration", valueDecoration)
                 .attr("fill", resolvedNowValueColor)
                 .attr("font-family", valueFontFamily)
+                .style("font-feature-settings", TABULAR_NUMS)
                 .text(fmtVal(row.nowValue));
 
+            // v3 motion (§6): the Then/Now value text settles via the
+            // shared settle() helper (capped at MOTION_MAX_MS, skipped
+            // under prefers-reduced-motion internally) rather than the
+            // bespoke d3-transition stagger used for the connector/dots/
+            // labels above — this is the visual's literal "value settle"
+            // moment, matching the KPI/Sparkline/Progress-Bar-Card
+            // precedent of calling settle() directly on a value node.
             if (dur > 0) {
-                thenValText.attr("opacity", 0).transition().delay(delay + dur * 0.2).duration(dur * 0.3).attr("opacity", 0.7);
-                nowValText.attr("opacity", 0).transition().delay(delay + dur * 0.8).duration(dur * 0.3).attr("opacity", 1);
+                settle(thenValText.node() as unknown as SVGElement, [
+                    { opacity: 0, transform: "translateY(3px)" },
+                    { opacity: 0.7, transform: "translateY(0)" },
+                ], { duration: Math.min(220, dur) });
+                settle(nowValText.node() as unknown as SVGElement, [
+                    { opacity: 0, transform: "translateY(3px)" },
+                    { opacity: 1, transform: "translateY(0)" },
+                ], { duration: Math.min(220, dur) });
             }
 
             // ── Variance badge ──
@@ -797,6 +1013,7 @@ export class Visual implements IVisual {
                     .attr("text-decoration", badgeDecoration)
                     .attr("fill", badgeFill)
                     .attr("font-family", badgeFontFamily)
+                    .style("font-feature-settings", TABULAR_NUMS)
                     .text(`${arrow} ${varText}`);
 
                 if (dur > 0) {
@@ -809,6 +1026,27 @@ export class Visual implements IVisual {
                 }
             }
         });
+
+        // Numeric axis tick labels — one row below the last category row,
+        // above any axis-title caption (Shared axis mode only, see the
+        // gridlines block above).
+        if (showGridlines) {
+            const tickColor = this.isHighContrast ? this.highContrastForeground : surfaceTokens(theme).muted;
+            const tickY = margin.top + gridRowsHeight + 12;
+            gridTickValues.forEach((v) => {
+                this.svg.append("text")
+                    .classed("axis-tick-label", true)
+                    .attr("x", chartLeft + sharedScale(v))
+                    .attr("y", tickY)
+                    .attr("text-anchor", "middle")
+                    .attr("font-size", "10.5px")
+                    .attr("font-weight", "600")
+                    .attr("fill", tickColor)
+                    .style("font-feature-settings", TABULAR_NUMS)
+                    .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
+                    .text(fmtRowVal(v, rows[0]));
+            });
+        }
 
         // Axis titles (X = value scale, Y = categories)
         if (showAxisTitles) {
@@ -871,7 +1109,7 @@ export class Visual implements IVisual {
         }
     }
 
-    private renderEmpty(width: number, height: number): void {
+    private renderEmpty(width: number, height: number, theme: Theme = "dark"): void {
         // Dedicated background layer (D-05) — same shared card as
         // renderDumbbell(), so the empty state also honours it.
         if (!this.isHighContrast) {
@@ -883,7 +1121,7 @@ export class Visual implements IVisual {
                 .attr("fill", toRgba(bgHex, bgTransparencyPct));
         }
 
-        const fillColor = this.isHighContrast ? this.highContrastForeground : "#999999";
+        const fillColor = this.isHighContrast ? this.highContrastForeground : surfaceTokens(theme).muted;
         this.svg.append("text")
             .attr("x", width / 2).attr("y", height / 2)
             .attr("text-anchor", "middle")
@@ -899,6 +1137,8 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
+        this.cornerSignature?.destroy();
+        this.cornerSignature = null;
         this.svg = null;
         this.target = null;
     }
