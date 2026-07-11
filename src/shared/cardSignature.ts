@@ -117,7 +117,12 @@ function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opt
             const arm = document.createElement("div");
             arm.style.position = "absolute";
             arm.style.pointerEvents = "none";
-            arm.style.borderRadius = "99px";
+            // Corner-end cap takes the configurable corner radius; the
+            // free end keeps the pill cap.
+            const rr = `${Math.max(2, opts.cardRadius)}px`;
+            arm.style.borderRadius = horizontal
+                ? (corner === "tl" ? `${rr} 99px 99px 99px` : `99px 99px ${rr} 99px`)
+                : (corner === "tl" ? `${rr} 99px 99px 99px` : `99px 99px ${rr} 99px`);
             const fadeDir = horizontal
                 ? (corner === "tl" ? "90deg" : "270deg")
                 : (corner === "tl" ? "180deg" : "0deg");

@@ -50,13 +50,21 @@ export class CardSignatureSettings extends FormattingSettingsCard {
         value: { value: "#8f8ab8" }
     });
 
+    cornerRadius = new formattingSettings.NumUpDown({
+        name: "cornerRadius",
+        displayName: "Corner Radius",
+        description: "Curve of the corner (px)",
+        value: 10
+    });
+
     name: string = "cardSignature";
     displayName: string = "Corner Accents";
     topLevelSlice = this.show;
     slices: Array<FormattingSettingsSlice> = [
         this.style,
         this.autoColor,
-        this.color
+        this.color,
+        this.cornerRadius
     ];
 }
 
@@ -115,6 +123,8 @@ export function applyCardSignature(
         glowMix: p.glowMix,
         muted: p.muted,
         mirror: p.mirror,
-        cardRadius: p.cardRadius,
+        cardRadius: (sig && sig.cornerRadius.value !== 10)
+            ? Math.max(0, Math.min(24, sig.cornerRadius.value))
+            : p.cardRadius,
     });
 }

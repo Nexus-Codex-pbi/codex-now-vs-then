@@ -633,6 +633,12 @@
                             }
                         }
                     }
+                },
+                "cornerRadius": {
+                    "displayName": "Corner Radius",
+                    "type": {
+                        "numeric": true
+                    }
                 }
             }
         }
