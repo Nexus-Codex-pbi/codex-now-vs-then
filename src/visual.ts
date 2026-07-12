@@ -115,6 +115,9 @@ export class Visual implements IVisual {
     // any row's direction colour).
     private cornerSignature: CardSignatureHandle | null = null;
 
+    // v3 theme captured for renderTitle() (D-16 adaptive title default).
+    private currentTheme: Theme = "light";
+
     // Gradient-def bookkeeping so the beveled "now" dot's SVG
     // <radialGradient> defs are only (re)created once per row per
     // update(), not per attribute read.
@@ -213,6 +216,7 @@ export class Visual implements IVisual {
             const bgHexForTheme = bgSettingsForTheme.backgroundColor.value?.value ?? "#ffffff";
             const bgTransparencyForTheme = bgSettingsForTheme.transparency.value ?? 100;
             const theme: Theme = themeFor(bgHexForTheme, bgTransparencyForTheme < 100);
+            this.currentTheme = theme;
             const hc = applyHighContrast(colorPalette, { fallbackColor: accentToken(theme) });
 
             // Corner-bracket re-tint each update (created once in the constructor).
@@ -1098,9 +1102,14 @@ export class Visual implements IVisual {
             this.titleEl.style.textDecoration = t.titleUnderline?.value ? "underline" : "none";
             this.titleEl.style.alignSelf = alignSelfFor(titleAlignVal);
             this.titleEl.style.textAlign = textAlignFor(titleAlignVal);
+            // Adaptive default (D-16 sentinel): untouched shared-Title navy
+            // swaps to the dark text token on dark surfaces.
+            const setTitle = t.titleColor?.value?.value ?? "#1a1a2e";
+            const adaptiveTitle = setTitle === "#1a1a2e" && this.currentTheme === "dark"
+                ? surfaceTokens("dark").text : setTitle;
             this.titleEl.style.color = this.isHighContrast
                 ? this.highContrastForeground
-                : (t.titleColor?.value?.value ?? "#1a1a2e");
+                : adaptiveTitle;
             this.titleEl.style.padding = "8px 12px 4px";
             this.titleEl.style.display = "";
         } else {
