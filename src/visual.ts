@@ -33,7 +33,7 @@ import { toRgba } from "./shared/colorHelpers";
 // surfaces + channel-linear mix()), the corner-bracket card signature,
 // the capped/reduced-motion-aware settle() helper, and the single HC
 // fallback rule. Consumed read-only (D-11).
-import { Theme, accentToken, targetToken } from "./shared/bandEngine";
+import { Theme, accentToken, targetToken, directionColor } from "./shared/bandEngine";
 import { mix, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
 import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
@@ -273,10 +273,15 @@ export class Visual implements IVisual {
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
             positiveColorSlice.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
+            // Untouched positive default -> the direction law (lime), so
+            // the fx helper (which returns its seed when no rule) resolves
+            // to the design colour, not the legacy teal (#007064).
+            const posSeed = positiveColorSlice.value.value === "#007064"
+                ? directionColor(1, theme) : positiveColorSlice.value.value;
             this.positiveColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "comparisonSettings", propertyName: "positiveColor" },
-                positiveColorSlice.value.value
+                posSeed
             );
 
             // ─── Conditional formatting (fx) wiring — Now Value Colour
@@ -472,8 +477,12 @@ export class Visual implements IVisual {
         const lbl = this.formattingSettings.labelCard;
         const style = this.formattingSettings.styleCard;
 
-        let positiveColor = comp.positiveColor.value.value;
-        let negativeColor = comp.negativeColor.value.value;
+        // Direction law (v2 design): increases lime, decreases magenta,
+        // untouched only — a user pick still wins.
+        let positiveColor = comp.positiveColor.value.value === "#007064"
+            ? directionColor(1, theme) : comp.positiveColor.value.value;
+        let negativeColor = comp.negativeColor.value.value === "#e60e22"
+            ? directionColor(-1, theme) : comp.negativeColor.value.value;
         let neutralColor = comp.neutralColor.value.value;
         const connectorWidth = Math.max(1, comp.connectorWidth.value);
         const dotRadius = Math.max(3, comp.dotRadius.value);
@@ -833,27 +842,8 @@ export class Visual implements IVisual {
                 connector.attr("x1", leftX).attr("x2", rightX).attr("opacity", 0.55);
             }
 
-            // ── Direction arrow on connector (midpoint) ──
-            if (Math.abs(nowX - thenX) > 20) {
-                const midX = (thenX + nowX) / 2;
-                const arrowDir = nowX > thenX ? 1 : -1;
-                const arrowSize = Math.min(8, connectorWidth * 2.5);
-                const arrow = g.append("path")
-                    .attr("d", `M ${midX - arrowDir * arrowSize} ${dumbbellY - arrowSize}
-                                L ${midX + arrowDir * arrowSize} ${dumbbellY}
-                                L ${midX - arrowDir * arrowSize} ${dumbbellY + arrowSize}`)
-                    .attr("fill", "none")
-                    .attr("stroke", dirColor)
-                    .attr("stroke-width", Math.max(1.5, connectorWidth * 0.6))
-                    .attr("stroke-linecap", "round")
-                    .attr("stroke-linejoin", "round");
-
-                if (dur > 0) {
-                    arrow.attr("opacity", 0)
-                        .transition().delay(delay + dur * 0.6).duration(dur * 0.3)
-                        .attr("opacity", 1);
-                }
-            }
+            // (v2 design: the 55%-opacity connector IS the "travel" — no
+            // chevron arrow; removed 2026-07-13 to match the design board.)
 
             // ── Then dot: HOLLOW RING (baseline) — a muted/unit-token
             // stroke on the card surface colour, deliberately NOT
