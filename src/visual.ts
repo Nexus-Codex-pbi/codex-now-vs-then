@@ -584,6 +584,14 @@ export class Visual implements IVisual {
             this.svg.append("rect")
                 .attr("width", width).attr("height", this.computeContentHeight(rows))
                 .attr("fill", toRgba(bgHex, bgTransparencyPct));
+            // Also paint the scroll container so the Background colour sits
+            // behind the TITLE div (a DOM sibling ABOVE the svg, so the svg
+            // rect above never covered it — Neil 2026-07-13: "the title
+            // didn't get the dark background"). At the default transparency
+            // 100 this is alpha 0 → transparent, D-06 preserved.
+            this.scrollContainer.style("background-color", toRgba(bgHex, bgTransparencyPct));
+        } else {
+            this.scrollContainer.style("background-color", null);
         }
 
         // Pre-existing Style-card background (untouched behaviour, D-06)
