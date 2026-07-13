@@ -289,10 +289,15 @@ export class Visual implements IVisual {
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
             valueColorSlice.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
+            // Seed with the theme-ADAPTED default: the Now value reads
+            // getColorForMeasure (returns this seed when no fx rule), so a
+            // raw #333333 seed made the value dark-on-dark (Neil 2026-07-13).
+            const adaptedValueDefault = valueColorSlice.value.value === "#333333" && theme === "dark"
+                ? surfaceTokens("dark").text : valueColorSlice.value.value;
             this.valueColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "labelSettings", propertyName: "valueColor" },
-                valueColorSlice.value.value
+                adaptedValueDefault
             );
 
             // Check if data actually changed (to decide whether to animate)
@@ -544,7 +549,8 @@ export class Visual implements IVisual {
         const badgeDecoration = lbl.badgeUnderline.value ? "underline" : "none";
 
         let bgColor = style.backgroundColor.value.value;
-        let trackColor = style.trackColor.value.value;
+        let trackColor = style.trackColor.value.value === "#1c1c3a"
+            ? surfaceTokens(theme).track : style.trackColor.value.value;
         const trackHeight = Math.max(1, style.trackHeight.value);
         const rowSpacing = Math.max(4, style.rowSpacing.value);
 
