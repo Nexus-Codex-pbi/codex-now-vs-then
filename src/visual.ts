@@ -35,6 +35,7 @@ import { toRgba } from "./shared/colorHelpers";
 // fallback rule. Consumed read-only (D-11).
 import { Theme, accentToken, targetToken } from "./shared/bandEngine";
 import { mix, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
+import { resolveBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import { settle, MOTION_MAX_MS } from "./shared/motion";
@@ -122,6 +123,7 @@ export class Visual implements IVisual {
     // <radialGradient> defs are only (re)created once per row per
     // update(), not per attribute read.
     private gradientDefs: Selection<SVGDefsElement, unknown, null, undefined>;
+    private borderRect: Selection<SVGRectElement, unknown, null, undefined>;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -170,6 +172,12 @@ export class Visual implements IVisual {
         this.gradientDefs = this.svg.append("defs") as unknown as
             Selection<SVGDefsElement, unknown, null, undefined>;
 
+        this.borderRect = this.svg.append("rect")
+            .classed("nvt-border", true)
+            .attr("fill", "none")
+            .style("pointer-events", "none") as unknown as
+            Selection<SVGRectElement, unknown, null, undefined>;
+
         // Corner-bracket card signature — accent-tinted (the card's own
         // cyan identity, not any single row's direction colour), appended
         // to the scroll container (an HTML overlay above the SVG,
@@ -215,7 +223,13 @@ export class Visual implements IVisual {
             const bgSettingsForTheme = this.formattingSettings.background;
             const bgHexForTheme = bgSettingsForTheme.backgroundColor.value?.value ?? "#ffffff";
             const bgTransparencyForTheme = bgSettingsForTheme.transparency.value ?? 100;
-            const theme: Theme = themeFor(bgHexForTheme, bgTransparencyForTheme < 100);
+            // Theme-source ladder: visible own bg governs; user-set hex
+            // governs even at full transparency; else the report theme
+            // palette background (was: assume dark when transparent).
+            const nvtUserSet = bgHexForTheme.toLowerCase() !== "#ffffff";
+            const nvtPaletteBg = (this.host.colorPalette && (this.host.colorPalette as any).background && (this.host.colorPalette as any).background.value) || "#ffffff";
+            const themeSourceHex = (bgTransparencyForTheme < 100 || nvtUserSet) ? bgHexForTheme : nvtPaletteBg;
+            const theme: Theme = themeFor(themeSourceHex, true);
             this.currentTheme = theme;
             const hc = applyHighContrast(colorPalette, { fallbackColor: accentToken(theme) });
 
@@ -295,7 +309,29 @@ export class Visual implements IVisual {
             this.renderDumbbell(rows, width, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText, theme, hc);
 
             // Size SVG to actual content so scroll container shows scrollbars when needed
-            this.svg.attr("width", width).attr("height", this.computeContentHeight(rows));
+            const contentH = this.computeContentHeight(rows);
+            this.svg.attr("width", width).attr("height", contentH);
+
+            // Visual's own Border card — SVG stroke-rect on top, inset by w/2.
+            const rb = resolveBorder(this.formattingSettings.visualBorder, {
+                hcActive: this.isHighContrast,
+                hcColor: this.highContrastForeground,
+                palette: this.host.colorPalette,
+                metadataObjects: options.dataViews?.[0]?.metadata?.objects,
+            });
+            this.svg.node()?.appendChild(this.borderRect.node() as Node);
+            if (rb) {
+                const inset = rb.width / 2;
+                this.borderRect
+                    .attr("x", inset).attr("y", inset)
+                    .attr("width", Math.max(0, width - rb.width))
+                    .attr("height", Math.max(0, contentH - rb.width))
+                    .attr("rx", rb.radius).attr("ry", rb.radius)
+                    .attr("stroke", rb.colorCss).attr("stroke-width", rb.width)
+                    .style("display", "");
+            } else {
+                this.borderRect.style("display", "none");
+            }
             this.eventService.renderingFinished(options);
         } catch (e) {
             this.eventService.renderingFailed(options, String(e));
@@ -460,11 +496,14 @@ export class Visual implements IVisual {
         const decimals = clamp(comp.decimalPlaces.value, 0, 6);
 
         const catFontSize = clamp(lbl.categoryFontSize.value, 8, 30);
-        let catColor = lbl.categoryColor.value.value;
+        let catColor = lbl.categoryColor.value.value === "#1a1a1a" && theme === "dark"
+            ? surfaceTokens("dark").text : lbl.categoryColor.value.value;
         const valFontSize = clamp(lbl.valueFontSize.value, 8, 24);
-        let valColor = lbl.valueColor.value.value;
+        let valColor = lbl.valueColor.value.value === "#333333" && theme === "dark"
+            ? surfaceTokens("dark").text : lbl.valueColor.value.value;
         const thenFontSize = clamp(lbl.thenFontSize.value, 8, 24);
-        let thenValueColor = lbl.thenColor.value.value;
+        let thenValueColor = lbl.thenColor.value.value === "#5e5d5a" && theme === "dark"
+            ? surfaceTokens("dark").muted : lbl.thenColor.value.value;
         const badgeFontSize = clamp(lbl.badgeFontSize.value, 8, 20);
         const nowLabelText = lbl.nowLabel.value || "Now";
         const thenLabelText = lbl.thenLabel.value || "Then";

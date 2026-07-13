@@ -50,6 +50,13 @@ export class CardSignatureSettings extends FormattingSettingsCard {
         value: { value: "#8f8ab8" }
     });
 
+    mirrorCorners = new formattingSettings.ToggleSwitch({
+        name: "mirrorCorners",
+        displayName: "Both Corners",
+        description: "Mirror the accent to the opposite corner (off = top-left only)",
+        value: true
+    });
+
     cornerRadius = new formattingSettings.NumUpDown({
         name: "cornerRadius",
         displayName: "Corner Radius",
@@ -62,6 +69,7 @@ export class CardSignatureSettings extends FormattingSettingsCard {
     topLevelSlice = this.show;
     slices: Array<FormattingSettingsSlice> = [
         this.style,
+        this.mirrorCorners,
         this.autoColor,
         this.color,
         this.cornerRadius
@@ -122,7 +130,7 @@ export function applyCardSignature(
         variant: r.variant,
         glowMix: p.glowMix,
         muted: p.muted,
-        mirror: p.mirror,
+        mirror: sig ? sig.mirrorCorners.value : p.mirror,
         cardRadius: (sig && sig.cornerRadius.value !== 10)
             ? Math.max(0, Math.min(24, sig.cornerRadius.value))
             : p.cardRadius,
