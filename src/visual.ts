@@ -35,7 +35,7 @@ import { toRgba } from "./shared/colorHelpers";
 // fallback rule. Consumed read-only (D-11).
 import { Theme, accentToken, targetToken } from "./shared/bandEngine";
 import { mix, surfaceTokens, TABULAR_NUMS } from "./shared/designTokens";
-import { resolveBorder } from "./shared/borderSettings";
+import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import { settle, MOTION_MAX_MS } from "./shared/motion";
@@ -317,26 +317,20 @@ export class Visual implements IVisual {
             const contentH = this.computeContentHeight(rows);
             this.svg.attr("width", width).attr("height", contentH);
 
-            // Visual's own Border card — SVG stroke-rect on top, inset by w/2.
-            const rb = resolveBorder(this.formattingSettings.visualBorder, {
+            // Visual's own Border card — CSS border on the SCROLL CONTAINER
+            // (the DOM element holding title + svg) so it wraps the WHOLE
+            // card, not just the chart area (an SVG rect inside the svg only
+            // covered the middle — Neil 2026-07-13). border-box keeps the
+            // border inside the sized box (no extra scrollbars).
+            const sc = this.scrollContainer.node() as HTMLElement;
+            sc.style.boxSizing = "border-box";
+            this.borderRect.style("display", "none");
+            applyBorder(sc, this.formattingSettings.visualBorder, {
                 hcActive: this.isHighContrast,
                 hcColor: this.highContrastForeground,
                 palette: this.host.colorPalette,
                 metadataObjects: options.dataViews?.[0]?.metadata?.objects,
             });
-            this.svg.node()?.appendChild(this.borderRect.node() as Node);
-            if (rb) {
-                const inset = rb.width / 2;
-                this.borderRect
-                    .attr("x", inset).attr("y", inset)
-                    .attr("width", Math.max(0, width - rb.width))
-                    .attr("height", Math.max(0, contentH - rb.width))
-                    .attr("rx", rb.radius).attr("ry", rb.radius)
-                    .attr("stroke", rb.colorCss).attr("stroke-width", rb.width)
-                    .style("display", "");
-            } else {
-                this.borderRect.style("display", "none");
-            }
             this.eventService.renderingFinished(options);
         } catch (e) {
             this.eventService.renderingFailed(options, String(e));
