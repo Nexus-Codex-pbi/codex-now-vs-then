@@ -86,6 +86,14 @@ function prefersReducedMotion(): boolean {
     }
 }
 
+
+/** #657 — resolve the display unit. "default" reproduces the previous hardcoded per-format
+ *  behaviour exactly (currency -> auto, number -> none, otherwise auto). */
+function unitFor(setting: string, effectiveFmt: string): string {
+    if (setting && setting !== "default") return setting;
+    return effectiveFmt === "number" ? "none" : "auto";
+}
+
 export class Visual implements IVisual {
     private target: HTMLElement;
     private host: IVisualHost;
@@ -658,9 +666,10 @@ export class Visual implements IVisual {
         const fmtRowVal = (v: number, row: MetricRow): string => {
             const effectiveFmt = row.rowFormat || valueFmt;
             if (effectiveFmt === "percent") return v.toFixed(decimals) + "%";
-            if (effectiveFmt === "currency") return "$" + formatValue(v, "auto", decimals);
-            if (effectiveFmt === "number") return formatValue(v, "none", decimals);
-            return formatValue(v, "auto", decimals);
+            const uSet = String((this.formattingSettings.comparisonCard as any).displayUnits?.value?.value ?? "default");
+            const u = unitFor(uSet, effectiveFmt);
+            if (effectiveFmt === "currency") return "$" + formatValue(v, u, decimals);
+            return formatValue(v, u, decimals);
         };
 
         // ── v2 numeric axis gridlines (Shared axis mode only — Independent
@@ -905,9 +914,10 @@ export class Visual implements IVisual {
             const effectiveFmt = row.rowFormat || valueFmt;
             const fmtVal = (v: number): string => {
                 if (effectiveFmt === "percent") return v.toFixed(decimals) + "%";
-                if (effectiveFmt === "currency") return "$" + formatValue(v, "auto", decimals);
-                if (effectiveFmt === "number") return formatValue(v, "none", decimals);
-                return formatValue(v, "auto", decimals);
+                const uSet2 = String((this.formattingSettings.comparisonCard as any).displayUnits?.value?.value ?? "default");
+                const u2 = unitFor(uSet2, effectiveFmt);
+                if (effectiveFmt === "currency") return "$" + formatValue(v, u2, decimals);
+                return formatValue(v, u2, decimals);
             };
 
             // ── Labels above dots: "Then" label + value, "Now" label + value ──
@@ -1019,7 +1029,8 @@ export class Visual implements IVisual {
                 }
                 if (varianceFmt === "absolute" || varianceFmt === "both") {
                     if (varText) varText += " ";
-                    varText += (row.change >= 0 ? "+" : "") + formatValue(row.change, "auto", decimals);
+                    const uv = String((this.formattingSettings.comparisonCard as any).displayUnits?.value?.value ?? "default");
+                    varText += (row.change >= 0 ? "+" : "") + formatValue(row.change, unitFor(uv, valueFmt), decimals);
                 }
 
                 // Badge background pill

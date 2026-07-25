@@ -109,6 +109,23 @@ class ComparisonSettingsCard extends FormattingSettingsCard {
         value: 1
     });
 
+    // #657 — the display UNIT was hardcoded per value-format (currency->auto, number->none,
+    // else auto) with no customer lever. Default "default" keeps that exact per-format behaviour;
+    // any other choice overrides it. Additive, saved reports unchanged.
+    displayUnits = new formattingSettings.ItemDropdown({
+        name: "displayUnits",
+        displayName: "Display Units",
+        items: [
+            { displayName: "Auto (by format)", value: "default" },
+            { displayName: "Auto", value: "auto" },
+            { displayName: "None", value: "none" },
+            { displayName: "Thousands (K)", value: "thousands" },
+            { displayName: "Millions (M)", value: "millions" },
+            { displayName: "Billions (B)", value: "billions" }
+        ],
+        value: { displayName: "Auto (by format)", value: "default" }
+    });
+
     name: string = "comparisonSettings";
     displayName: string = "Comparison";
     slices: Array<FormattingSettingsSlice> = [
@@ -122,7 +139,8 @@ class ComparisonSettingsCard extends FormattingSettingsCard {
         this.showVarianceBadge,
         this.varianceFormat,
         this.valueFormat,
-        this.decimalPlaces
+        this.decimalPlaces,
+        this.displayUnits
     ];
 }
 
