@@ -147,7 +147,15 @@ export class Visual implements IVisual {
             .classed("now-vs-then-scroll", true)
             .style("width", "100%")
             .style("height", "100%")
-            .style("overflow", "auto")
+            // overflow-y only. The chart is always sized to fit the container
+            // width, so a HORIZONTAL scrollbar is never legitimate here — and
+            // with plain `auto` one appeared permanently as soon as content was
+            // taller than the viewport: the vertical scrollbar consumed ~15px of
+            // inner width while the SVG was still set to the FULL viewport width
+            // (Neil, 2026-07-30). The width is also reduced below; this is the
+            // backstop.
+            .style("overflow-x", "hidden")
+            .style("overflow-y", "auto")
             .style("position", "relative");
 
         // Context menu. Listener on target AND on the inner scrollContainer —
@@ -324,11 +332,18 @@ export class Visual implements IVisual {
             const xAxisTitleText = axisSettings.xAxisTitle.value || "";
             const yAxisTitleText = axisSettings.yAxisTitle.value || "";
 
-            this.renderDumbbell(rows, width, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText, theme, hc);
+            // Content height decides whether a vertical scrollbar will appear,
+            // and therefore how much width is actually available. Compute it
+            // BEFORE rendering so the chart is laid out to the width it will
+            // really get, instead of overflowing by the scrollbar's thickness.
+            const contentH = this.computeContentHeight(rows);
+            const scrollbarW = this.measureScrollbarWidth();
+            const drawWidth = contentH > height ? Math.max(0, width - scrollbarW) : width;
+
+            this.renderDumbbell(rows, drawWidth, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText, theme, hc);
 
             // Size SVG to actual content so scroll container shows scrollbars when needed
-            const contentH = this.computeContentHeight(rows);
-            this.svg.attr("width", width).attr("height", contentH);
+            this.svg.attr("width", drawWidth).attr("height", contentH);
 
             // Visual's own Border card — CSS border on the SCROLL CONTAINER
             // (the DOM element holding title + svg) so it wraps the WHOLE
@@ -440,6 +455,21 @@ export class Visual implements IVisual {
         });
 
         return rows;
+    }
+
+    /** Native scrollbar thickness, measured once off a throwaway probe rather
+     *  than hardcoded — it differs across platforms and Power BI hosts, and
+     *  guessing it wrong reintroduces the overflow it exists to prevent. */
+    private scrollbarWidthCache: number | null = null;
+    private measureScrollbarWidth(): number {
+        if (this.scrollbarWidthCache !== null) return this.scrollbarWidthCache;
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:absolute;top:-9999px;width:100px;height:100px;overflow:scroll;";
+        document.body.appendChild(probe);
+        const w = probe.offsetWidth - probe.clientWidth;
+        document.body.removeChild(probe);
+        this.scrollbarWidthCache = w > 0 ? w : 15;
+        return this.scrollbarWidthCache;
     }
 
     private computeContentHeight(rows: MetricRow[]): number {
@@ -644,7 +674,18 @@ export class Visual implements IVisual {
             if (hasCustomDomain) {
                 return scaleLinear().domain([customMinRaw, customMaxRaw]).range(xRange);
             }
-            const allValues = rows.flatMap(r => [r.nowValue, r.thenValue]);
+            // The target-range band is part of the plotted content, so its
+            // bounds MUST enter the domain. They used to be excluded, so a band
+            // extending past the now/then extent — the normal case, since a
+            // target is usually beyond where you currently are — scaled to an x
+            // greater than chartWidth and pushed the SVG wider than the scroll
+            // container, giving a permanent horizontal scrollbar (Neil,
+            // 2026-07-30, the moment the roles were first bound).
+            const allValues = rows.flatMap(r => [
+                r.nowValue, r.thenValue,
+                ...(r.targetRangeLow !== null ? [r.targetRangeLow] : []),
+                ...(r.targetRangeHigh !== null ? [r.targetRangeHigh] : []),
+            ]);
             const minVal = Math.min(...allValues);
             const maxVal = Math.max(...allValues);
             const pad = (maxVal - minVal) * 0.08 || 1;
@@ -653,8 +694,13 @@ export class Visual implements IVisual {
 
         const scaleForRow = (row: MetricRow) => {
             if (axisMode !== "perCategory") return sharedScale;
-            const lo = Math.min(row.nowValue, row.thenValue);
-            const hi = Math.max(row.nowValue, row.thenValue);
+            // Per-category mode has the same requirement as the shared scale:
+            // include the row's target band or it plots outside its own axis.
+            const rowVals = [row.nowValue, row.thenValue,
+                ...(row.targetRangeLow !== null ? [row.targetRangeLow] : []),
+                ...(row.targetRangeHigh !== null ? [row.targetRangeHigh] : [])];
+            const lo = Math.min(...rowVals);
+            const hi = Math.max(...rowVals);
             const span = hi - lo;
             // Pad either side. When Now == Then, fall back to a magnitude-based pad
             // so the dot still lands centred rather than at a degenerate domain edge.
@@ -785,8 +831,12 @@ export class Visual implements IVisual {
             // and the toggle is on — absent data renders nothing (matches
             // the design's own norange/no-data-bound behaviour).
             if (axisCard.showTargetRange.value && row.targetRangeLow !== null && row.targetRangeHigh !== null) {
-                const rngLo = chartLeft + rowScale(Math.min(row.targetRangeLow, row.targetRangeHigh));
-                const rngHi = chartLeft + rowScale(Math.max(row.targetRangeLow, row.targetRangeHigh));
+                // Clamp to the plot box as well as widening the domain above:
+                // belt and braces, so no future data shape can push the band
+                // past the container and reintroduce the scrollbar.
+                const clampX = (x: number) => Math.max(chartLeft, Math.min(chartLeft + chartWidth, x));
+                const rngLo = clampX(chartLeft + rowScale(Math.min(row.targetRangeLow, row.targetRangeHigh)));
+                const rngHi = clampX(chartLeft + rowScale(Math.max(row.targetRangeLow, row.targetRangeHigh)));
                 const tgt = targetToken(theme);
                 g.append("rect")
                     .attr("x", rngLo)
