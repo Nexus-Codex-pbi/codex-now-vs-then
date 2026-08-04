@@ -40,6 +40,7 @@ import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature"
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import { settle, MOTION_MAX_MS } from "./shared/motion";
 import { applyHighContrast } from "./shared/highContrast";
+import { LicenseGate } from "./shared/licensing";
 
 interface MetricRow {
     category: string;
@@ -133,7 +134,22 @@ export class Visual implements IVisual {
     private gradientDefs: Selection<SVGDefsElement, unknown, null, undefined>;
     private borderRect: Selection<SVGRectElement, unknown, null, undefined>;
 
+    private licenseGate: LicenseGate;
+
+    private lastUpdateOptions: VisualUpdateOptions | null = null;
+
+
     constructor(options: VisualConstructorOptions) {
+
+        // NO FREE TIER — an unlicensed user gets the whole visual blocked.
+
+        // The check is async, so re-run the last update once it resolves.
+
+        this.licenseGate = new LicenseGate(options.host, () => {
+
+            if (this.lastUpdateOptions) this.update(this.lastUpdateOptions);
+
+        });
         this.formattingSettingsService = new FormattingSettingsService();
         this.target = options.element;
         this.host = options.host;
@@ -207,6 +223,14 @@ export class Visual implements IVisual {
 
     public update(options: VisualUpdateOptions): void {
         this.eventService.renderingStarted(options);
+        this.lastUpdateOptions = options;
+
+        if (this.licenseGate.blockedThisFrame()) {
+            this.target.style.display = "none";
+            this.eventService.renderingFinished(options);
+            return;
+        }
+        this.target.style.display = "";
 
         try {
             // High contrast detection
