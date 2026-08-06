@@ -1,8 +1,19 @@
 # Codex Now vs Then — Cert Notes (resubmission wave, Phase 01)
 
-**Version:** 1.1.0.22 (visual.version) · production GUID unchanged (`codexNowVsThen…`) · API 5.11.0 / pbiviz 7.0.2 (pinned).
+**Version:** 1.1.0.28 (visual.version) · production GUID unchanged (`codexNowVsThen…`) · API 5.11.0 / pbiviz 7.0.2 (pinned).
 
 One-wave AppSource resubmission carrying the transparency/formatting rework **and** the v2 appearance redesign. Partner Center re-evaluates the whole package (Pitfall 6).
+
+
+## Licensing (this wave)
+
+Calls `licenseManager.getAvailableServicePlans()`; raises
+`notifyLicenseRequired(LicenseNotificationType.General)` when no Active/Warning plan is present.
+**General, not VisualIsBlocked** — enforced only in Edit scenarios, so viewers are never
+interrupted and the visual always renders. Fails open on `isLicenseInfoAvailable === false`,
+`isLicenseUnsupportedEnv === true`, and an absent API. No network calls added (verified in the
+built bundle: no fetch / XMLHttpRequest / WebSocket). `capabilities.json` privileges remain `[]`.
+Sample .pbix re-embedded to this exact build and preflight-verified.
 
 ## Transparency wave (Plans 04–06)
 - New **Background** card: `ColorPicker` fill + 0–100 `transparency` slider via `hexToRGBString`. Additive.
