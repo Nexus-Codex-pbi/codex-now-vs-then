@@ -7,21 +7,60 @@ import LicenseInfoResult = powerbi.extensibility.visual.LicenseInfoResult;
 import ServicePlan = powerbi.extensibility.visual.ServicePlan;
 
 /**
- *  Licence gate — PROMPT, NEVER BLOCK.
+ *  Licence gate — HARD BLOCK.
  *
- *  AppSource never gates the download of a Power BI visual: every visual installs
- *  free for everyone. The ONLY thing that can require a purchase is this runtime
- *  check — and it PROMPTS, it does not block. Viewers always see the report;
- *  authors in Edit mode see Power BI's licence prompt. Creator-seat shaped.
+ *  DECISION 2026-09-10, Neil. Enforcement is a hard block: a user the platform
+ *  definitively reports as holding no usable service plan gets the visual blocked,
+ *  not merely prompted.
  *
- *  Fails OPEN — renders normally — in the three cases where the platform cannot
- *  give a truthful answer, because a false block breaks a paying customer's
- *  report:
- *    - licence API absent (host older than API 4.7)
+ *  Blast radius, accepted with full knowledge when the decision was made: AppSource
+ *  visuals auto-update, so the next published version blocks every existing install
+ *  at once — on the order of 250 tenants, whose live reports go blank where they use
+ *  these visuals without a licence. That is the intended outcome. Ten of the fifteen
+ *  visuals had been given away for roughly five months because enforcement was
+ *  configured but never enforced; the cost of continuing to give them away was judged
+ *  higher than the cost of the blank reports.
+ *
+ *  DO NOT re-litigate this, soften it, or stage it. If you are reading this because a
+ *  tenant complained, that complaint is the mechanism working. Route it to a purchase,
+ *  not to a code change.
+ *
+ *  ---------------------------------------------------------------------------
+ *  SUPERSEDED — the previous rationale, retained so it is not rediscovered and
+ *  re-argued from scratch:
+ *
+ *    "Licence gate — PROMPT, NEVER BLOCK. AppSource never gates the download of a
+ *    Power BI visual: every visual installs free for everyone. The ONLY thing that
+ *    can require a purchase is this runtime check — and it PROMPTS, it does not
+ *    block. Viewers always see the report; authors in Edit mode see Power BI's
+ *    licence prompt. Creator-seat shaped. `General` — NOT `VisualIsBlocked`.
+ *    Microsoft enforces `General` only in Power BI Edit scenarios; it returns false
+ *    in Read mode and on dashboards. So the author who can actually buy a licence is
+ *    prompted, and the report *keeps rendering* for every viewer. `VisualIsBlocked`
+ *    was the previous behaviour and it was unshippable: AppSource visuals
+ *    auto-update, so publishing it would have blanked every existing install's live
+ *    report at once — ~250 tenants, each of which had cleared a deliberate admin
+ *    gate to allow SDK visuals at all. See feedback_paywall_configured_not_enforced."
+ *
+ *  That reasoning was correct about the mechanics and wrong about the trade. The
+ *  blank reports it protects against are now the accepted price. Its one enduring
+ *  contribution is the fail-open set below, which survives unchanged.
+ *  ---------------------------------------------------------------------------
+ *
+ *  STILL fails OPEN — renders normally — in the three cases where the platform cannot
+ *  give a truthful answer, because a false block breaks a PAYING customer's report,
+ *  which is strictly worse than a freeloader rendering:
+ *    - licence API absent, or getAvailableServicePlans throws (host older than API 4.7)
  *    - isLicenseInfoAvailable === false (Desktop signed out, or offline)
  *    - isLicenseUnsupportedEnv === true (Publish to Web, PaaS embed, national
  *      clouds, RS Server, PDF/PPT export via REST) — enforcement is impossible
  *      in these environments by Microsoft's own design.
+ *  These three are NON-NEGOTIABLE. Blocking is only ever driven by a definitive
+ *  platform answer of "no usable plan".
+ *
+ *  It also renders while the asynchronous check is still in flight; the gate starts
+ *  OPEN and the redraw callback re-runs update() once the answer lands. A licensed
+ *  user therefore never sees a flash of blocked state.
  *
  *  NOTE: powerbi.ServicePlanState and powerbi.LicenseNotificationType are
  *  `const enum`s — they must be referenced inline and never aliased to a local,
@@ -77,29 +116,28 @@ export function checkLicense(host: IVisualHost): Promise<LicenseState> {
 }
 
 /**
- *  Raise Power BI's own licence prompt. The visual must not draw its own licence UX.
+ *  Raise Power BI's own blocking licence notification. The visual must not draw its
+ *  own licence UX.
  *
- *  `General` — NOT `VisualIsBlocked`. Microsoft enforces `General` only in Power BI
- *  **Edit** scenarios; it returns false in Read mode and on dashboards. So the author
- *  who can actually buy a licence is prompted, and the report *keeps rendering* for
- *  every viewer.
+ *  `VisualIsBlocked` — NOT `General`. `General` is the corner-icon prompt that Power BI
+ *  honours only in Edit scenarios, which is what made the previous build unenforced in
+ *  Read mode and on dashboards. `VisualIsBlocked` renders Power BI's own full blocking
+ *  overlay with the upgrade button, in every scenario.
  *
- *  `VisualIsBlocked` was the previous behaviour and it was unshippable: AppSource
- *  visuals auto-update, so publishing it would have blanked every existing install's
- *  live report at once — ~250 tenants, each of which had cleared a deliberate admin
- *  gate to allow SDK visuals at all. See feedback_paywall_configured_not_enforced.
+ *  Referenced inline: `import X = powerbi.LicenseNotificationType` fails
+ *  `pbiviz package` with TS2475 because it is a const enum.
  */
 export function notifyLicenseRequired(host: IVisualHost): void {
     const mgr = host && host.licenseManager;
     if (!mgr || typeof mgr.notifyLicenseRequired !== "function") return;
     try {
-        mgr.notifyLicenseRequired(powerbi.LicenseNotificationType.General);
+        mgr.notifyLicenseRequired(powerbi.LicenseNotificationType.VisualIsBlocked);
     } catch {
         /* notification is best-effort */
     }
 }
 
-/** @deprecated Retained so existing imports keep compiling. Prompts, never blocks. */
+/** @deprecated Retained so existing imports keep compiling. Now blocks. */
 export const notifyBlocked = notifyLicenseRequired;
 
 export function clearNotification(host: IVisualHost): void {
@@ -114,9 +152,8 @@ export function clearNotification(host: IVisualHost): void {
 
 /**
  *  Drop-in gate. Construct once in the visual's constructor, passing a redraw
- *  callback so the prompt lands as soon as the async check resolves; then call
- *  `blockedThisFrame()` at the top of update(). It always returns false — the call
- *  sites are retained deliberately so enforcement can never regress to blocking.
+ *  callback so the block lands as soon as the async check resolves; then call
+ *  `blockedThisFrame()` at the top of update() and return early when it is true.
  */
 export class LicenseGate {
     private state: LicenseState = OPEN;
@@ -134,14 +171,12 @@ export class LicenseGate {
     }
 
     /**
-     *  ALWAYS RETURNS FALSE — by design. The name is kept so all 15 visuals'
-     *  `if (gate.blockedThisFrame()) return;` call sites keep compiling unchanged.
+     *  TRUE when the platform definitively reported no usable service plan — the
+     *  caller must hide its content and return without rendering.
      *
-     *  When the user holds no usable plan this raises Power BI's own licence prompt
-     *  once (Edit scenarios only) and then lets the frame render. Nothing this visual
-     *  does may ever leave a customer's report blank: a false block breaks a paying
-     *  customer's work, and a true block breaks everyone who installed while the
-     *  product was free.
+     *  Returns FALSE — renders — for a licensed user, for an in-flight check, and for
+     *  every one of the three fail-open cases in checkLicense(). Only a definitive
+     *  "no usable plan" blocks.
      */
     public blockedThisFrame(): boolean {
         if (!this.state.blocked) {
@@ -155,10 +190,10 @@ export class LicenseGate {
             notifyLicenseRequired(this.host);
             this.notified = true;
         }
-        return false;
+        return true;
     }
 
-    /** True when the platform gave a definitive "no valid plan" answer. Prompt-only. */
+    /** True when the platform gave a definitive "no valid plan" answer. */
     public get unlicensed(): boolean {
         return this.state.blocked;
     }
