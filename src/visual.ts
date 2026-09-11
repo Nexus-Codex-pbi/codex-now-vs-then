@@ -407,8 +407,10 @@ export class Visual implements IVisual {
                 if (roleMap[role] === undefined) return null;
                 const raw = vals[roleMap[role]].values[r];
                 if (raw === null || raw === undefined) return null;
+                if (typeof raw !== "number" && typeof raw !== "string") return null;
+                if (typeof raw === "string" && raw.trim() === "") return null;
                 const n = Number(raw);
-                return isNaN(n) ? null : n;
+                return Number.isFinite(n) ? n : null;
             };
 
             const getStr = (role: string): string | null => {
