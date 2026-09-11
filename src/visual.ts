@@ -26,7 +26,7 @@ import { formatValue, clamp } from "./utils";
 
 import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
-import { toRgba } from "./shared/colorHelpers";
+import { toRgba, compositeOver, surfaceTone } from "./shared/colorHelpers";
 
 // v3 appearance engine (frozen, 01-15) — band engine (direction-law
 // tokens + the violet target/accent markers), design tokens (dim-theme
@@ -60,19 +60,10 @@ interface MetricRow {
     targetRangeHigh: number | null;
 }
 
-/** Luminance-based theme pick (matches the pbiKpiCard/pbiProgressBarCard
- * v3 pilots' own convention) — only trusts bgHex as a real signal when
- * the background layer is actually visible (transparency < 100);
- * otherwise defaults dark (this visual's pre-existing default is fully
- * transparent, D-06). */
-function themeFor(hex: string, visible: boolean): Theme {
-    if (!visible) return "dark";
-    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})/i.exec(hex || "");
-    if (!m) return "dark";
-    const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return luminance > 0.55 ? "light" : "dark";
-}
+// The local luminance theme pick was removed with the cycle-09 §4 fix: the
+// shared surfaceTone() helper is the same Rec.601 weighting at the same 0.55
+// threshold, and it is now fed the COMPOSITED surface (resolveBackground())
+// instead of a raw fill hex plus a "visible" flag the callers had to get right.
 
 /** Mirrors motion.ts's own `prefers-reduced-motion` gate for this
  * visual's bespoke multi-element stagger choreography (connector +
@@ -264,19 +255,14 @@ export class Visual implements IVisual {
                 Selection<SVGDefsElement, unknown, null, undefined>;
 
             // ─── v3 theme pick + single HC fallback rule, computed once
-            // and reused everywhere colour is resolved below (§8, D-16:
-            // this visual's own Background card is the source of truth
-            // for whether the card reads as a dark or light surface).
-            const bgSettingsForTheme = this.formattingSettings.background;
-            const bgHexForTheme = bgSettingsForTheme.backgroundColor.value?.value ?? "#ffffff";
-            const bgTransparencyForTheme = bgSettingsForTheme.transparency.value ?? 100;
-            // Theme-source ladder: visible own bg governs; user-set hex
-            // governs even at full transparency; else the report theme
-            // palette background (was: assume dark when transparent).
-            const nvtUserSet = bgHexForTheme.toLowerCase() !== "#ffffff";
-            const nvtPaletteBg = (this.host.colorPalette && (this.host.colorPalette as any).background && (this.host.colorPalette as any).background.value) || "#ffffff";
-            const themeSourceHex = (bgTransparencyForTheme < 100 || nvtUserSet) ? bgHexForTheme : nvtPaletteBg;
-            const theme: Theme = themeFor(themeSourceHex, true);
+            // and reused everywhere colour is resolved below (§8, D-16).
+            // The ink is judged against the surface that is actually
+            // VISIBLE — the Background card composited over the legacy
+            // colour and the report theme behind it — not against a raw
+            // fill hex that may be painted at any transparency, including
+            // one that makes it invisible (NEXUS cycle-09 §4). The old
+            // ladder trusted any non-white hex even at 100% transparency.
+            const theme: Theme = surfaceTone(this.resolveBackground().surfaceHex);
             this.currentTheme = theme;
             const hc = applyHighContrast(colorPalette, { fallbackColor: accentToken(theme) });
 
@@ -509,6 +495,40 @@ export class Visual implements IVisual {
         return this.scrollbarWidthCache;
     }
 
+    /** The ONE effective background (NEXUS cycle-09 §4).
+     *
+     *  Layer order, explicit rather than emergent from paint order: the legacy
+     *  Style-card colour is the BASE (opaque when set), the shared Background
+     *  card paints on top of it at its own transparency, and whatever is behind
+     *  the visual — the report theme's palette background — shows through when
+     *  neither is opaque.
+     *
+     *  `surfaceHex` is that stack composited: the colour a viewer actually
+     *  sees, and therefore the only honest thing to judge adaptive ink against.
+     *  A fill nobody can see no longer votes on the theme — black at 100%
+     *  transparency over a white page chose light-on-white text before.
+     *
+     *  `css` is painted once, by the scroll container alone. With a legacy
+     *  colour underneath the stack is opaque, so the composited hex IS the
+     *  surface; without one the card must stay exactly as see-through as the
+     *  user asked, so the alpha is preserved instead of being flattened. */
+    private resolveBackground(): { css: string; surfaceHex: string } {
+        if (this.isHighContrast) {
+            return { css: this.highContrastBackground, surfaceHex: this.highContrastBackground };
+        }
+        const palette = this.host.colorPalette as ISandboxExtendedColorPalette;
+        const behindHex = palette?.background?.value || "#ffffff";
+        const legacyHex = (this.formattingSettings.styleCard.backgroundColor.value?.value || "").trim();
+        const bgHex = this.formattingSettings.background.backgroundColor.value?.value ?? "#ffffff";
+        const bgTransparencyPct = this.formattingSettings.background.transparency.value ?? 100;
+        return {
+            css: legacyHex
+                ? compositeOver(bgHex, bgTransparencyPct, legacyHex)
+                : toRgba(bgHex, bgTransparencyPct),
+            surfaceHex: compositeOver(bgHex, bgTransparencyPct, legacyHex || behindHex),
+        };
+    }
+
     private computeContentHeight(rows: MetricRow[]): number {
         const lbl = this.formattingSettings.labelCard;
         const showLabels = lbl.showLabels.value;
@@ -626,7 +646,6 @@ export class Visual implements IVisual {
         const badgeStyle = lbl.badgeItalic.value ? "italic" : "normal";
         const badgeDecoration = lbl.badgeUnderline.value ? "underline" : "none";
 
-        let bgColor = style.backgroundColor.value.value;
         let trackColor = style.trackColor.value.value === "#1c1c3a"
             ? surfaceTokens(theme).track : style.trackColor.value.value;
         const trackHeight = Math.max(1, style.trackHeight.value);
@@ -634,7 +653,6 @@ export class Visual implements IVisual {
 
         // High contrast overrides
         if (this.isHighContrast) {
-            bgColor = this.highContrastBackground;
             trackColor = this.highContrastForeground;
             positiveColor = this.highContrastForeground;
             negativeColor = this.highContrastForeground;
@@ -644,40 +662,23 @@ export class Visual implements IVisual {
             thenValueColor = this.highContrastForeground;
         }
 
-        // ─── Dedicated background layer (D-05) ─────────────────────────
-        // Suite-wide shared Background card (Colour + Transparency, sourced
-        // from _shared/formatting/), painted as the SVG's own first <rect>
-        // — never whole-root opacity. This visual's pre-existing
-        // styleCard.backgroundColor is left fully intact below (still
-        // painted, unchanged) for any old report that set it; the NEW
-        // shared card is layered on top of it. Its transparency default is
-        // overridden to 100 in settings.ts specifically so an OLD saved
-        // report (this property never previously existed) renders alpha 0
-        // — pixel-identical to painting nothing (D-06) — while still
-        // exposing a real, working Colour + Transparency control.
-        const background = this.formattingSettings.background;
-        if (!this.isHighContrast) {
-            const bgHex = background.backgroundColor.value?.value ?? "#ffffff";
-            const bgTransparencyPct = background.transparency.value ?? 100;
-            this.svg.append("rect")
-                .attr("width", width).attr("height", this.computeContentHeight(rows))
-                .attr("fill", toRgba(bgHex, bgTransparencyPct));
-            // Also paint the scroll container so the Background colour sits
-            // behind the TITLE div (a DOM sibling ABOVE the svg, so the svg
-            // rect above never covered it — Neil 2026-07-13: "the title
-            // didn't get the dark background"). At the default transparency
-            // 100 this is alpha 0 → transparent, D-06 preserved.
-            this.scrollContainer.style("background-color", toRgba(bgHex, bgTransparencyPct));
-        } else {
-            this.scrollContainer.style("background-color", null);
-        }
-
-        // Pre-existing Style-card background (untouched behaviour, D-06)
-        if (bgColor && bgColor.length > 0) {
-            this.svg.append("rect")
-                .attr("width", width).attr("height", this.computeContentHeight(rows))
-                .attr("fill", bgColor);
-        }
+        // ─── Dedicated background layer (D-05), painted ONCE ───────────
+        // Was: the shared Background card painted BOTH an SVG rect and the
+        // scroll container behind it, so a translucent colour composited over
+        // itself — black at 50% measured RGB 63/63/63 inside the chart against
+        // 127/127/127 on the same container just below it. And the legacy
+        // Style-card rect was painted last, so it covered the shared card on
+        // the chart but not behind the title (NEXUS cycle-09 §4).
+        //
+        // Now resolveBackground() resolves ONE effective surface with the layer
+        // order made explicit — legacy base, shared card above it, report theme
+        // behind both — and the scroll container is the single element that
+        // paints it, which is also what puts it behind the TITLE div (a DOM
+        // sibling above the svg — Neil 2026-07-13: "the title didn't get the
+        // dark background"). D-06 still holds: an old report that never touched
+        // the new card carries transparency 100, which composites to exactly
+        // what is behind it and paints alpha 0 — pixel-identical to before.
+        this.scrollContainer.style("background-color", this.resolveBackground().css);
 
         // Layout calculations
         const margin = { left: 16, right: 16, top: 12, bottom: 8 };
