@@ -437,7 +437,7 @@ export class Visual implements IVisual {
 
             // Determine visual direction based on change sign + downIsGood semantics
             let direction: "positive" | "negative" | "neutral";
-            if (Math.abs(change) < 0.001) {
+            if (change === 0) {
                 direction = "neutral";
             } else if (rowDirection === "downIsGood") {
                 // For metrics like cost/stockouts, a decrease is good (positive)

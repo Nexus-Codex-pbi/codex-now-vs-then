@@ -36,7 +36,7 @@ The visual provides the following format pane cards:
 ### Comparison Settings
 - Positive Color: Color for positive change (increase when upIsGood, decrease when downIsGood)
 - Negative Color: Color for negative change (decrease when upIsGood, increase when downIsGood)
-- Neutral Color: Color when change is negligible
+- Neutral Color: Color when Now equals Then
 - Connector Width: Thickness of the line connecting the two dots
 - Dot Radius: Size of the Then and Now dots
 - Animation Duration: Length of the animation in milliseconds (0 to disable)
