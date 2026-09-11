@@ -43,6 +43,7 @@ The visual provides the following format pane cards:
 - Stagger Delay: Delay between animating each row in milliseconds
 - Show Variance Badge: Toggle visibility of the variance badge
 - Variance Format: How to show variance in the badge — Percentage, Absolute, or Both
+- Absolute variance uses each row's Format and Display Units. Percent rows show absolute differences in percentage points (`pp`), distinct from relative percentage change.
 - Value Format: Format for the Then/Now values — Auto (uses Format field), Number, Percent, Currency
 - Decimal Places: Number of decimal places to display (when Value Format is not Auto)
 

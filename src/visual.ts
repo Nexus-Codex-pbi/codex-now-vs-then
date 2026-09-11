@@ -566,6 +566,34 @@ export class Visual implements IVisual {
         return contentH;
     }
 
+    private formatRowValue(value: number, row: MetricRow, difference = false): string {
+        const comp = this.formattingSettings.comparisonCard;
+        const format = row.rowFormat || String(comp.valueFormat.value?.value || "auto");
+        const decimals = clamp(comp.decimalPlaces.value, 0, 6);
+        if (format === "percent") return value.toFixed(decimals) + (difference ? " pp" : "%");
+        const units = unitFor(String(comp.displayUnits.value?.value || "default"), format);
+        const formatted = formatValue(value, units, decimals);
+        return format === "currency" ? "$" + formatted : formatted;
+    }
+
+    private formatVariance(row: MetricRow): { varText: string; arrow: string; noBaselineOnly: boolean } {
+        const format = String(this.formattingSettings.comparisonCard.varianceFormat.value?.value || "percent");
+        const noBaselineOnly = row.changePct === null && format === "percent";
+        const parts: string[] = [];
+        if (format === "percent" || format === "both") {
+            parts.push(row.changePct === null ? NO_VALUE
+                : (row.changePct >= 0 ? "+" : "") + row.changePct.toFixed(1) + "%");
+        }
+        if (format === "absolute" || format === "both") {
+            parts.push((row.change >= 0 ? "+" : "") + this.formatRowValue(row.change, row, true));
+        }
+        return {
+            varText: parts.join(" "),
+            arrow: noBaselineOnly ? "" : row.change > 0 ? "\u25B2" : row.change < 0 ? "\u25BC" : "",
+            noBaselineOnly
+        };
+    }
+
     private renderDumbbell(rows: MetricRow[], width: number, animate: boolean,
         showAxisTitles: boolean = false, xAxisTitleText: string = "", yAxisTitleText: string = "",
         theme: Theme = "dark", hc: ReturnType<typeof applyHighContrast> = applyHighContrast(null)): void {
@@ -595,9 +623,6 @@ export class Visual implements IVisual {
         const animDuration = reducedMotion ? 0 : Math.min(Math.max(0, comp.animationDuration.value), MOTION_MAX_MS);
         const staggerDelay = reducedMotion ? 0 : Math.max(0, comp.staggerDelay.value);
         const showBadge = comp.showVarianceBadge.value;
-        const varianceFmt = (comp.varianceFormat.value?.value as string) || "percent";
-        const valueFmt = (comp.valueFormat.value?.value as string) || "auto";
-        const decimals = clamp(comp.decimalPlaces.value, 0, 6);
 
         const catFontSize = clamp(lbl.categoryFontSize.value, 8, 30);
         let catColor = lbl.categoryColor.value.value === "#1a1a1a" && theme === "dark"
@@ -748,14 +773,7 @@ export class Visual implements IVisual {
         };
 
         // Helper for tooltip value formatting
-        const fmtRowVal = (v: number, row: MetricRow): string => {
-            const effectiveFmt = row.rowFormat || valueFmt;
-            if (effectiveFmt === "percent") return v.toFixed(decimals) + "%";
-            const uSet = String((this.formattingSettings.comparisonCard as any).displayUnits?.value?.value ?? "default");
-            const u = unitFor(uSet, effectiveFmt);
-            if (effectiveFmt === "currency") return "$" + formatValue(v, u, decimals);
-            return formatValue(v, u, decimals);
-        };
+        const fmtRowVal = (v: number, row: MetricRow): string => this.formatRowValue(v, row);
 
         // ── v2 numeric axis gridlines (Shared axis mode only — Independent
         // per-category has no single scale to tick against; matches the
@@ -1007,14 +1025,7 @@ export class Visual implements IVisual {
             }
 
             // ── Value format helper — per-row format overrides global ──
-            const effectiveFmt = row.rowFormat || valueFmt;
-            const fmtVal = (v: number): string => {
-                if (effectiveFmt === "percent") return v.toFixed(decimals) + "%";
-                const uSet2 = String((this.formattingSettings.comparisonCard as any).displayUnits?.value?.value ?? "default");
-                const u2 = unitFor(uSet2, effectiveFmt);
-                if (effectiveFmt === "currency") return "$" + formatValue(v, u2, decimals);
-                return formatValue(v, u2, decimals);
-            };
+            const fmtVal = (v: number): string => fmtRowVal(v, row);
 
             // ── Labels above dots: "Then" label + value, "Now" label + value ──
             const labelY = dumbbellY - dotRadius - 6;
@@ -1133,22 +1144,8 @@ export class Visual implements IVisual {
                 // (NEXUS cycle-09 \u00A71). In absolute/both mode the raw change is
                 // still a real reading, so it keeps its arrow and direction
                 // colour and only the percent slot goes to the em-dash.
-                const noBaseline = row.changePct === null;
-                const noBaselineOnly = noBaseline && varianceFmt === "percent";
+                const { varText, arrow, noBaselineOnly } = this.formatVariance(row);
                 const badgeDirColor = noBaselineOnly ? neutralColor : dirColor;
-                const arrow = noBaselineOnly ? ""
-                    : row.change > 0 ? "\u25B2" : row.change < 0 ? "\u25BC" : "";
-                let varText = "";
-                if (varianceFmt === "percent" || varianceFmt === "both") {
-                    varText += noBaseline
-                        ? NO_VALUE
-                        : (row.changePct >= 0 ? "+" : "") + row.changePct.toFixed(1) + "%";
-                }
-                if (varianceFmt === "absolute" || varianceFmt === "both") {
-                    if (varText) varText += " ";
-                    const uv = String((this.formattingSettings.comparisonCard as any).displayUnits?.value?.value ?? "default");
-                    varText += (row.change >= 0 ? "+" : "") + formatValue(row.change, unitFor(uv, valueFmt), decimals);
-                }
 
                 // Badge background pill
                 const pillWidth = Math.max(60, varText.length * (badgeFontSize * 0.55) + 28);
