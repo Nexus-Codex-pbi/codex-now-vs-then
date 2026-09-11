@@ -364,18 +364,17 @@ export class Visual implements IVisual {
             const xAxisTitleText = axisSettings.xAxisTitle.value || "";
             const yAxisTitleText = axisSettings.yAxisTitle.value || "";
 
-            // Content height decides whether a vertical scrollbar will appear,
-            // and therefore how much width is actually available. Compute it
-            // BEFORE rendering so the chart is laid out to the width it will
-            // really get, instead of overflowing by the scrollbar's thickness.
+            // Let the browser allocate border and scrollbar space, including
+            // the title's actual wrapped height, before measuring the plot.
             const contentH = this.computeContentHeight(rows);
-            const scrollbarW = this.measureScrollbarWidth();
-            const drawWidth = contentH > height ? Math.max(0, width - scrollbarW) : width;
-
-            this.renderDumbbell(rows, drawWidth, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText, theme, hc);
-
-            // Size SVG to actual content so scroll container shows scrollbars when needed
-            this.svg.attr("width", drawWidth).attr("height", contentH);
+            this.svg.attr("height", contentH);
+            const drawWidth = sc.clientWidth;
+            this.svg.attr("width", drawWidth);
+            const rendered = this.renderDumbbell(rows, drawWidth, shouldAnimate, showAxisTitles, xAxisTitleText, yAxisTitleText, theme, hc);
+            if (!rendered) {
+                this.svg.attr("height", Math.max(0, sc.clientHeight - this.titleEl.offsetHeight));
+                this.svg.attr("width", sc.clientWidth);
+            }
 
             this.eventService.renderingFinished(options);
         } catch (e) {
@@ -483,21 +482,6 @@ export class Visual implements IVisual {
         return rows;
     }
 
-    /** Native scrollbar thickness, measured once off a throwaway probe rather
-     *  than hardcoded — it differs across platforms and Power BI hosts, and
-     *  guessing it wrong reintroduces the overflow it exists to prevent. */
-    private scrollbarWidthCache: number | null = null;
-    private measureScrollbarWidth(): number {
-        if (this.scrollbarWidthCache !== null) return this.scrollbarWidthCache;
-        const probe = document.createElement("div");
-        probe.style.cssText = "position:absolute;top:-9999px;width:100px;height:100px;overflow:scroll;";
-        document.body.appendChild(probe);
-        const w = probe.offsetWidth - probe.clientWidth;
-        document.body.removeChild(probe);
-        this.scrollbarWidthCache = w > 0 ? w : 15;
-        return this.scrollbarWidthCache;
-    }
-
     /** The ONE effective background (NEXUS cycle-09 §4).
      *
      *  Layer order, explicit rather than emergent from paint order: the legacy
@@ -545,7 +529,7 @@ export class Visual implements IVisual {
 
         const endpointLabelFontSize = Math.max(6, Math.min(24, lbl.endpointLabelFontSize.value));
         const labelRowHeight = showLabels ? Math.max(12, endpointLabelFontSize + 4) : 0;
-        const valueRowHeight = valFontSize + 4;
+        const valueRowHeight = Math.max(valFontSize, clamp(lbl.thenFontSize.value, 8, 24)) + 4;
         const dumbbellHeight = Math.max(dotRadius * 2 + 4, trackHeight + 8);
         const singleRowHeight = catFontSize + 4 + dumbbellHeight + valueRowHeight + labelRowHeight;
         const totalRowHeight = singleRowHeight + rowSpacing;
@@ -600,9 +584,48 @@ export class Visual implements IVisual {
         };
     }
 
+    private measureTextWidth(text: string, size: number, family: string, weight: string): number {
+        const probe = this.svg.append("text")
+            .attr("font-size", size + "px").attr("font-family", family).attr("font-weight", weight)
+            .style("font-feature-settings", TABULAR_NUMS).style("visibility", "hidden").text(text);
+        const width = probe.node().getBBox().width;
+        probe.remove();
+        return width;
+    }
+
+    private fitCategoryLabel(node: SVGTextElement, width: number): void {
+        if (node.getBBox().width <= width) return;
+        const full = node.textContent || "";
+        node.setAttribute("aria-label", full);
+        const chars = Array.from(full);
+        let lo = 0, hi = chars.length;
+        while (lo < hi) {
+            const mid = Math.ceil((lo + hi) / 2);
+            node.textContent = chars.slice(0, mid).join("") + "\u2026";
+            if (node.getBBox().width <= width) lo = mid;
+            else hi = mid - 1;
+        }
+        node.textContent = chars.slice(0, lo).join("") + "\u2026";
+    }
+
+    private fitTextPair(first: SVGTextElement, second: SVGTextElement, firstOnLeft: boolean, min: number, max: number): void {
+        const left = firstOnLeft ? first : second;
+        const right = firstOnLeft ? second : first;
+        const a = left.getBBox(), b = right.getBBox();
+        const gap = 8;
+        let x = clamp(a.x, min, max - a.width);
+        let y = clamp(b.x, min, max - b.width);
+        if (x + a.width + gap > y) {
+            x = clamp((x + a.width + y) / 2 - gap / 2 - a.width, min, max - a.width - b.width - gap);
+            y = Math.max(y, x + a.width + gap);
+        }
+        left.setAttribute("x", String(Number(left.getAttribute("x")) + x - a.x));
+        right.setAttribute("x", String(Number(right.getAttribute("x")) + y - b.x));
+    }
+
     private renderDumbbell(rows: MetricRow[], width: number, animate: boolean,
         showAxisTitles: boolean = false, xAxisTitleText: string = "", yAxisTitleText: string = "",
-        theme: Theme = "dark", hc: ReturnType<typeof applyHighContrast> = applyHighContrast(null)): void {
+        theme: Theme = "dark", hc: ReturnType<typeof applyHighContrast> = applyHighContrast(null)): boolean {
         const comp = this.formattingSettings.comparisonCard;
         const lbl = this.formattingSettings.labelCard;
         const style = this.formattingSettings.styleCard;
@@ -715,14 +738,35 @@ export class Visual implements IVisual {
         // Layout calculations
         const margin = { left: 16, right: 16, top: 12, bottom: 8 };
         const categoryWidth = Math.min(width * 0.25, 160);
-        const badgeWidth = showBadge ? Math.min(width * 0.18, 110) : 0;
+        const badgeWidths = rows.map(row => {
+            const { arrow, varText } = this.formatVariance(row);
+            return Math.max(60, Math.ceil(this.measureTextWidth(`${arrow} ${varText}`, badgeFontSize, badgeFontFamily, badgeWeight)) + 20);
+        });
+        const badgeWidth = showBadge ? Math.max(...badgeWidths) + 12 : 0;
         const chartLeft = margin.left + categoryWidth;
         const chartRight = width - margin.right - badgeWidth;
         const chartWidth = chartRight - chartLeft;
+        const captionFamily = "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
+        const captionWidth = showLabels
+            ? this.measureTextWidth(thenLabelText, endpointLabelFontSize, captionFamily, endpointLabelBold ? "700" : "400")
+                + this.measureTextWidth(nowLabelText, endpointLabelFontSize, captionFamily, endpointLabelBold ? "700" : "600") + 12
+            : 0;
+        const valueWidths = rows.map(row =>
+            this.measureTextWidth(this.formatRowValue(row.thenValue, row), thenFontSize, thenFontFamily, thenWeightBase)
+            + this.measureTextWidth(this.formatRowValue(row.nowValue, row), valFontSize, valueFontFamily, valueWeight) + 12);
+        if (chartWidth < Math.max(dotRadius * 2 + 16, captionWidth, ...valueWidths)) {
+            this.svg.append("title").text("Not enough space to show comparison");
+            if (width >= 180 && this.scrollContainer.node().clientHeight - this.titleEl.offsetHeight >= 24) {
+                this.svg.append("text").attr("x", width / 2).attr("y", 18)
+                    .attr("text-anchor", "middle").attr("font-size", "12px")
+                    .attr("fill", valColor).text("Not enough space");
+            }
+            return false;
+        }
 
         // Vertical layout
         const labelRowHeight = showLabels ? Math.max(12, endpointLabelFontSize + 4) : 0;
-        const valueRowHeight = valFontSize + 4;
+        const valueRowHeight = Math.max(valFontSize, thenFontSize) + 4;
         const dumbbellHeight = Math.max(dotRadius * 2 + 4, trackHeight + 8);
         const singleRowHeight = catFontSize + 4 + dumbbellHeight + valueRowHeight + labelRowHeight;
         const totalRowHeight = singleRowHeight + rowSpacing;
@@ -788,7 +832,14 @@ export class Visual implements IVisual {
         // BEFORE the row list so tracks/dots paint above the faint lines.
         const gridRowsHeight = rows.length * totalRowHeight;
         const showGridlines = axisCard.showAxisGridlines.value && axisMode === "shared";
-        const gridTickValues = showGridlines ? sharedScale.ticks(6) : [];
+        let lastTickRight = chartLeft - 8;
+        const gridTickValues = showGridlines ? sharedScale.ticks(6).filter(value => {
+            const x = chartLeft + sharedScale(value);
+            const half = this.measureTextWidth(fmtRowVal(value, rows[0]), 10.5, captionFamily, "600") / 2;
+            if (x - half < lastTickRight + 8 || x + half > chartRight) return false;
+            lastTickRight = x + half;
+            return true;
+        }) : [];
         if (showGridlines) {
             const gridColor = this.isHighContrast ? this.highContrastForeground : surfaceTokens(theme).border;
             gridTickValues.forEach((v) => {
@@ -883,7 +934,7 @@ export class Visual implements IVisual {
             });
 
             // ── Category name ──
-            g.append("text")
+            const categoryLabel = g.append("text")
                 .attr("x", margin.left)
                 .attr("y", catFontSize)
                 .attr("font-size", catFontSize + "px")
@@ -893,9 +944,10 @@ export class Visual implements IVisual {
                 .attr("fill", catColor)
                 .attr("font-family", categoryFontFamily)
                 .text(row.category);
+            this.fitCategoryLabel(categoryLabel.node(), categoryWidth - 8);
 
             // ── Dumbbell area ──
-            const dumbbellY = catFontSize + 8 + dumbbellHeight / 2;
+            const dumbbellY = catFontSize + 8 + labelRowHeight + dumbbellHeight / 2;
 
             // Background track — the v2 board's own "dim track" default
             // (settings.ts trackColor now ships the v3 dim-surface token)
@@ -1083,6 +1135,7 @@ export class Visual implements IVisual {
                     .attr("fill", nowFill)
                     .attr("font-family", "Segoe UI, Tahoma, Geneva, Verdana, sans-serif")
                     .text(nowLabelText);
+                this.fitTextPair(thenLbl.node(), nowLbl.node(), thenOnLeft, chartLeft + 2, chartRight - 2);
 
                 if (dur > 0) {
                     thenLbl.attr("opacity", 0).transition().delay(delay).duration(dur * 0.3).attr("opacity", 1);
@@ -1091,7 +1144,7 @@ export class Visual implements IVisual {
             }
 
             // ── Value labels below dots ──
-            const valY = dumbbellY + dotRadius + valFontSize + 4;
+            const valY = dumbbellY + dotRadius + Math.max(valFontSize, thenFontSize) + 4;
 
             // Then value: anchor away from Now to avoid overlap
             const thenAnchor = dotsClose ? (thenOnLeft ? "end" : "start") : "middle";
@@ -1127,6 +1180,7 @@ export class Visual implements IVisual {
                 .attr("font-family", valueFontFamily)
                 .style("font-feature-settings", TABULAR_NUMS)
                 .text(fmtVal(row.nowValue));
+            this.fitTextPair(thenValText.node(), nowValText.node(), thenOnLeft, chartLeft + 2, chartRight - 2);
 
             // v3 motion (§6): the Then/Now value text settles via the
             // shared settle() helper (capped at MOTION_MAX_MS, skipped
@@ -1165,7 +1219,7 @@ export class Visual implements IVisual {
                 const badgeDirColor = noBaselineOnly ? neutralColor : dirColor;
 
                 // Badge background pill
-                const pillWidth = Math.max(60, varText.length * (badgeFontSize * 0.55) + 28);
+                const pillWidth = badgeWidths[idx];
                 const pillHeight = badgeFontSize + 10;
 
                 const pill = g.append("rect")
@@ -1261,6 +1315,7 @@ export class Visual implements IVisual {
                     .text(yAxisTitleText);
             }
         }
+        return true;
     }
 
     // ─── Visual Title (TITLE-01, D-13/D-14) — sourced from the shared
@@ -1290,6 +1345,7 @@ export class Visual implements IVisual {
                 ? this.highContrastForeground
                 : adaptiveTitle;
             this.titleEl.style.padding = "8px 12px 4px";
+            this.titleEl.style.overflowWrap = "anywhere";
             this.titleEl.style.display = "";
         } else {
             this.titleEl.style.display = "none";
