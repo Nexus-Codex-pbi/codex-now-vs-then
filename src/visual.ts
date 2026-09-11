@@ -876,7 +876,12 @@ export class Visual implements IVisual {
                 const clampX = (x: number) => Math.max(chartLeft, Math.min(chartLeft + chartWidth, x));
                 const rngLo = clampX(chartLeft + rowScale(Math.min(row.targetRangeLow, row.targetRangeHigh)));
                 const rngHi = clampX(chartLeft + rowScale(Math.max(row.targetRangeLow, row.targetRangeHigh)));
-                const tgt = targetToken(theme);
+                // The target band is a painted surface too: its violet token is
+                // a hue the HC palette never authorised, so in high contrast it
+                // routes to the system foreground like every other mark here
+                // (NEXUS cycle-09 §5, same class — found by the literal/token
+                // sweep, not by the report's own text-colour probes).
+                const tgt = hc.active ? hc.color : targetToken(theme);
                 g.append("rect")
                     .attr("x", rngLo)
                     .attr("y", dumbbellY - dumbbellHeight / 2 + 2)
@@ -1017,8 +1022,17 @@ export class Visual implements IVisual {
                 const thenLblAnchor = dotsClose ? (thenX < nowX ? "end" : "start") : "middle";
                 const nowLblAnchor = dotsClose ? (nowX > thenX ? "start" : "end") : "middle";
 
-                const thenFill = endpointLabelColorOverride || neutralColor;
-                const nowFill = endpointLabelColorOverride || dirColor;
+                // High contrast wins over the user's Endpoint Label Color, the
+                // same way the badge and the numeric values already yield to it
+                // (NEXUS cycle-09 §5): a black override on the black HC canvas
+                // painted both captions invisible, because the override was
+                // applied AFTER the HC colours had been resolved.
+                const thenFill = this.isHighContrast
+                    ? this.highContrastForeground
+                    : (endpointLabelColorOverride || neutralColor);
+                const nowFill = this.isHighContrast
+                    ? this.highContrastForeground
+                    : (endpointLabelColorOverride || dirColor);
                 const thenWeight = endpointLabelBold ? "700" : "400";
                 const nowWeight = endpointLabelBold ? "700" : "600";
 
