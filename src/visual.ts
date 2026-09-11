@@ -248,14 +248,15 @@ export class Visual implements IVisual {
                 VisualFormattingSettingsModel, dataView
             );
 
-            const width = options.viewport.width;
-            const height = options.viewport.height;
+            const width = Math.max(0, options.viewport.width);
+            const height = Math.max(0, options.viewport.height);
             // Set viewport size on scroll container
             this.scrollContainer.style("width", width + "px").style("height", height + "px");
 
             // Clear (re-creates <defs> below — selectAll("*") also removes it)
             this.svg.node()?.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
             this.svg.selectAll("*").interrupt().on("mousemove mouseleave click keydown", null).remove();
+            this.svg.attr("width", 0).attr("height", 0);
             this.gradientDefs = this.svg.append("defs") as unknown as
                 Selection<SVGDefsElement, unknown, null, undefined>;
 
@@ -270,6 +271,15 @@ export class Visual implements IVisual {
             const theme: Theme = surfaceTone(this.resolveBackground().surfaceHex);
             this.currentTheme = theme;
             const hc = applyHighContrast(colorPalette, { fallbackColor: accentToken(theme) });
+            const sc = this.scrollContainer.node() as HTMLElement;
+            sc.style.boxSizing = "border-box";
+            sc.style.backgroundColor = this.resolveBackground().css;
+            applyBorder(sc, this.formattingSettings.visualBorder, {
+                hcActive: this.isHighContrast,
+                hcColor: this.highContrastForeground,
+                palette: this.host.colorPalette,
+                metadataObjects: dataView?.metadata?.objects,
+            });
 
             // Corner-bracket re-tint each update (created once in the constructor).
             applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
@@ -289,7 +299,7 @@ export class Visual implements IVisual {
                 applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
                     autoHex: accentToken(theme), hcActive: hc.active, hcColor: hc.color, mirror: true, muted: true,
                 });
-                this.renderEmpty(width, height, theme);
+                this.renderEmpty(sc.clientWidth, sc.clientHeight, theme);
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -367,20 +377,6 @@ export class Visual implements IVisual {
             // Size SVG to actual content so scroll container shows scrollbars when needed
             this.svg.attr("width", drawWidth).attr("height", contentH);
 
-            // Visual's own Border card — CSS border on the SCROLL CONTAINER
-            // (the DOM element holding title + svg) so it wraps the WHOLE
-            // card, not just the chart area (an SVG rect inside the svg only
-            // covered the middle — Neil 2026-07-13). border-box keeps the
-            // border inside the sized box (no extra scrollbars).
-            const sc = this.scrollContainer.node() as HTMLElement;
-            sc.style.boxSizing = "border-box";
-            this.borderRect.style("display", "none");
-            applyBorder(sc, this.formattingSettings.visualBorder, {
-                hcActive: this.isHighContrast,
-                hcColor: this.highContrastForeground,
-                palette: this.host.colorPalette,
-                metadataObjects: options.dataViews?.[0]?.metadata?.objects,
-            });
             this.eventService.renderingFinished(options);
         } catch (e) {
             this.eventService.renderingFailed(options, String(e));
@@ -1313,17 +1309,7 @@ export class Visual implements IVisual {
     }
 
     private renderEmpty(width: number, height: number, theme: Theme = "dark"): void {
-        // Dedicated background layer (D-05) — same shared card as
-        // renderDumbbell(), so the empty state also honours it.
-        if (!this.isHighContrast) {
-            const background = this.formattingSettings.background;
-            const bgHex = background.backgroundColor.value?.value ?? "#ffffff";
-            const bgTransparencyPct = background.transparency.value ?? 100;
-            this.svg.append("rect")
-                .attr("width", width).attr("height", height)
-                .attr("fill", toRgba(bgHex, bgTransparencyPct));
-        }
-
+        this.svg.attr("width", width).attr("height", height);
         const fillColor = this.isHighContrast ? this.highContrastForeground : surfaceTokens(theme).muted;
         this.svg.append("text")
             .attr("x", width / 2).attr("y", height / 2)
