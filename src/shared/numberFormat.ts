@@ -62,9 +62,13 @@ export function formatModelNumber(n: number, format: string | null | undefined, 
     // Percentage formats: "0.00%;-0.00%;0.00%", "0%", "0.0%". Power BI stores
     // percentages as decimals (0.046 = 4.6%).
     if (format.indexOf("%") >= 0) {
-        const m = format.match(/0\.(0+)%/);
-        const dec = m ? m[1].length : 0;
-        return `${(n * 100).toFixed(dec)}%`;
+        // Same min/max reading as the decimal branch: "0.##%" permits two optional
+        // digits, "0.0#%" requires one and permits two. The old `/0\.(0+)%/` regex
+        // saw only required digits and rendered 0.1234 as "12%" for both (NEXUS
+        // re-review 2026-09-11, Callback Card and Equaliser Bar). No grouping, so
+        // "0.00%" keeps rendering exactly as before for large percentages.
+        const { min, max } = fractionDigitsFor(format);
+        return `${(n * 100).toLocaleString(locale, { minimumFractionDigits: min, maximumFractionDigits: max, useGrouping: false })}%`;
     }
 
     const { min, max } = fractionDigitsFor(format);

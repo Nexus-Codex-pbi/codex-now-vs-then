@@ -87,3 +87,16 @@ export function contrastRatio(aHex: string, bHex: string): number {
 export function contrastInk(surfaceHex: string, darkInk: string, lightInk: string): string {
     return contrastRatio(surfaceHex, darkInk) >= contrastRatio(surfaceHex, lightInk) ? darkInk : lightInk;
 }
+
+/** A de-emphasised ink derived FROM the chosen ink by mixing toward the surface,
+ *  backed off until it still clears `minRatio` (WCAG) against that surface. The
+ *  fixed muted tokens (#8f8ab8 / #5b5b74) sit near mid-grey by design and read
+ *  at 1.2–3.0:1 on mid-grey tiles (Icon Gauge, NEXUS re-review 2026-09-11);
+ *  a muted ink must be relative to the surface it sits on, not a constant. */
+export function mutedInk(inkHex: string, surfaceHex: string, minRatio = 4.5, mixAmount = 0.45): string {
+    for (let t = mixAmount; t >= 0; t -= 0.05) {
+        const candidate = mix(inkHex, surfaceHex, t);
+        if (contrastRatio(candidate, surfaceHex) >= minRatio) return candidate;
+    }
+    return inkHex;
+}
