@@ -48,8 +48,7 @@ interface MetricRow {
     thenValue: number;
     sortOrder: number | null;
     change: number;
-    /** Relative change, or null when Then is zero — a zero baseline has no
-     *  percentage to express (NEXUS cycle-09 §1). `change` stays real. */
+    /** Relative change, or null for a nonzero reading against a zero baseline. */
     changePct: number | null;
     rowFormat: string | null;       // "number" | "currency" | "percent" | null (use global)
     rowDirection: string | null;    // "upIsGood" | "downIsGood" | null (default upIsGood)
@@ -430,7 +429,7 @@ export class Visual implements IVisual {
             // baseline": the badge and the tooltip render the same em-dash
             // utils.formatValue() already uses for a missing reading. The raw
             // `change` is untouched and still drives arrow/direction/absolute.
-            const changePct = thenVal !== 0 ? (change / Math.abs(thenVal)) * 100 : null;
+            const changePct = thenVal !== 0 ? (change / Math.abs(thenVal)) * 100 : nowVal === 0 ? 0 : null;
 
             // Per-row format and direction from data roles
             const rowFormat = getStr("format");
