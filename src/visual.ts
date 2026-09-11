@@ -911,7 +911,7 @@ export class Visual implements IVisual {
                 .attr("fill", trackColor)
                 .attr("opacity", 1);
 
-            // Positions — enforce minimum separation so dots don't overlap
+            // Mark coordinates always represent the scale; only labels may move.
             const rowScale = scaleForRow(row);
 
             // ── Per-row target range band (violet target token, §2) ──
@@ -949,27 +949,15 @@ export class Visual implements IVisual {
                 });
             }
 
-            const rawThenX = chartLeft + rowScale(row.thenValue);
-            const rawNowX = chartLeft + rowScale(row.nowValue);
-            const minSep = dotRadius * 3 + 4; // minimum pixel gap between dot centres
-            let thenX = rawThenX;
-            let nowX = rawNowX;
-
-            if (Math.abs(nowX - thenX) < minSep && row.direction !== "neutral") {
-                const mid = (rawThenX + rawNowX) / 2;
-                const half = minSep / 2;
-                if (rawNowX >= rawThenX) {
-                    thenX = mid - half;
-                    nowX = mid + half;
-                } else {
-                    thenX = mid + half;
-                    nowX = mid - half;
-                }
-            }
+            const thenX = chartLeft + rowScale(row.thenValue);
+            const nowX = chartLeft + rowScale(row.nowValue);
 
             const leftX = Math.min(thenX, nowX);
             const rightX = Math.max(thenX, nowX);
             const dotsClose = Math.abs(nowX - thenX) < 60;
+            const thenOnLeft = thenX <= nowX;
+            const thenTextX = thenX + (dotsClose ? (thenOnLeft ? -4 : 4) : 0);
+            const nowTextX = nowX + (dotsClose ? (thenOnLeft ? 4 : -4) : 0);
 
             // ── Animated connector line — opacity settles at 55% (§2 board
             // note: "reads as travel, not a bar") ──
@@ -1061,8 +1049,8 @@ export class Visual implements IVisual {
 
             if (showLabels) {
                 // Anchor labels away from each other when dots are close
-                const thenLblAnchor = dotsClose ? (thenX < nowX ? "end" : "start") : "middle";
-                const nowLblAnchor = dotsClose ? (nowX > thenX ? "start" : "end") : "middle";
+                const thenLblAnchor = dotsClose ? (thenOnLeft ? "end" : "start") : "middle";
+                const nowLblAnchor = dotsClose ? (thenOnLeft ? "start" : "end") : "middle";
 
                 // High contrast wins over the user's Endpoint Label Color, the
                 // same way the badge and the numeric values already yield to it
@@ -1079,7 +1067,7 @@ export class Visual implements IVisual {
                 const nowWeight = endpointLabelBold ? "700" : "600";
 
                 const thenLbl = g.append("text")
-                    .attr("x", thenX).attr("y", labelY)
+                    .attr("x", thenTextX).attr("y", labelY)
                     .attr("text-anchor", thenLblAnchor)
                     .attr("font-size", endpointLabelFontSize + "px")
                     .attr("font-weight", thenWeight)
@@ -1088,7 +1076,7 @@ export class Visual implements IVisual {
                     .text(thenLabelText);
 
                 const nowLbl = g.append("text")
-                    .attr("x", nowX).attr("y", labelY)
+                    .attr("x", nowTextX).attr("y", labelY)
                     .attr("text-anchor", nowLblAnchor)
                     .attr("font-size", endpointLabelFontSize + "px")
                     .attr("font-weight", nowWeight)
@@ -1106,9 +1094,9 @@ export class Visual implements IVisual {
             const valY = dumbbellY + dotRadius + valFontSize + 4;
 
             // Then value: anchor away from Now to avoid overlap
-            const thenAnchor = dotsClose ? (thenX < nowX ? "end" : "start") : "middle";
+            const thenAnchor = dotsClose ? (thenOnLeft ? "end" : "start") : "middle";
             const thenValText = g.append("text")
-                .attr("x", thenX).attr("y", valY)
+                .attr("x", thenTextX).attr("y", valY)
                 .attr("text-anchor", thenAnchor)
                 .attr("font-size", thenFontSize + "px")
                 .attr("font-weight", thenWeightBase)
@@ -1127,9 +1115,9 @@ export class Visual implements IVisual {
             const resolvedNowValueColor = this.isHighContrast
                 ? this.highContrastForeground
                 : (this.valueColorHelper?.getColorForMeasure(instanceObjects, "nowValue") ?? valColor);
-            const nowAnchor = dotsClose ? (nowX > thenX ? "start" : "end") : "middle";
+            const nowAnchor = dotsClose ? (thenOnLeft ? "start" : "end") : "middle";
             const nowValText = g.append("text")
-                .attr("x", nowX).attr("y", valY)
+                .attr("x", nowTextX).attr("y", valY)
                 .attr("text-anchor", nowAnchor)
                 .attr("font-size", valFontSize + "px")
                 .attr("font-weight", valueWeight)
