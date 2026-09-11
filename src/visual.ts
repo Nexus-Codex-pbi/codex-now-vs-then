@@ -26,7 +26,7 @@ import { formatValue, clamp } from "./utils";
 
 import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
-import { toRgba, compositeOver, surfaceTone } from "./shared/colorHelpers";
+import { toRgba, compositeOver, contrastInk, contrastRatio, mutedInk } from "./shared/colorHelpers";
 
 // v3 appearance engine (frozen, 01-15) — band engine (direction-law
 // tokens + the violet target/accent markers), design tokens (dim-theme
@@ -58,11 +58,6 @@ interface MetricRow {
     targetRangeLow: number | null;
     targetRangeHigh: number | null;
 }
-
-// The local luminance theme pick was removed with the cycle-09 §4 fix: the
-// shared surfaceTone() helper is the same Rec.601 weighting at the same 0.55
-// threshold, and it is now fed the COMPOSITED surface (resolveBackground())
-// instead of a raw fill hex plus a "visible" flag the callers had to get right.
 
 /** Mirrors motion.ts's own `prefers-reduced-motion` gate for this
  * visual's bespoke multi-element stagger choreography (connector +
@@ -124,6 +119,7 @@ export class Visual implements IVisual {
 
     // v3 theme captured for renderTitle() (D-16 adaptive title default).
     private currentTheme: Theme = "light";
+    private currentSurface = "#ffffff";
 
     // Gradient-def bookkeeping so the beveled "now" dot's SVG
     // <radialGradient> defs are only (re)created once per row per
@@ -268,12 +264,14 @@ export class Visual implements IVisual {
             // fill hex that may be painted at any transparency, including
             // one that makes it invisible (NEXUS cycle-09 §4). The old
             // ladder trusted any non-white hex even at 100% transparency.
-            const theme: Theme = surfaceTone(this.resolveBackground().surfaceHex);
+            const background = this.resolveBackground();
+            this.currentSurface = background.surfaceHex;
+            const theme: Theme = contrastInk(this.currentSurface, "#000000", "#ffffff") === "#000000" ? "light" : "dark";
             this.currentTheme = theme;
             const hc = applyHighContrast(colorPalette, { fallbackColor: accentToken(theme) });
             const sc = this.scrollContainer.node() as HTMLElement;
             sc.style.boxSizing = "border-box";
-            sc.style.backgroundColor = this.resolveBackground().css;
+            sc.style.backgroundColor = background.css;
             applyBorder(sc, this.formattingSettings.visualBorder, {
                 hcActive: this.isHighContrast,
                 hcColor: this.highContrastForeground,
@@ -345,8 +343,8 @@ export class Visual implements IVisual {
             // Seed with the theme-ADAPTED default: the Now value reads
             // getColorForMeasure (returns this seed when no fx rule), so a
             // raw #333333 seed made the value dark-on-dark (Neil 2026-07-13).
-            const adaptedValueDefault = valueColorSlice.value.value === "#333333" && theme === "dark"
-                ? surfaceTokens("dark").text : valueColorSlice.value.value;
+            const adaptedValueDefault = valueColorSlice.value.value === "#333333"
+                ? this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#333333") : valueColorSlice.value.value;
             this.valueColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "labelSettings", propertyName: "valueColor" },
@@ -516,6 +514,15 @@ export class Visual implements IVisual {
         };
     }
 
+    private readableInk(preferred: string, surface = this.currentSurface): string {
+        return contrastRatio(preferred, surface) >= 4.5
+            ? preferred : contrastInk(surface, "#000000", "#ffffff");
+    }
+
+    private secondaryInk(): string {
+        return mutedInk(contrastInk(this.currentSurface, "#000000", "#ffffff"), this.currentSurface);
+    }
+
     private computeContentHeight(rows: MetricRow[]): number {
         const lbl = this.formattingSettings.labelCard;
         const showLabels = lbl.showLabels.value;
@@ -636,7 +643,8 @@ export class Visual implements IVisual {
             ? directionColor(1, theme) : comp.positiveColor.value.value;
         let negativeColor = comp.negativeColor.value.value === "#e60e22"
             ? directionColor(-1, theme) : comp.negativeColor.value.value;
-        let neutralColor = comp.neutralColor.value.value;
+        let neutralColor = comp.neutralColor.value.value === "#5e5d5a"
+            ? this.secondaryInk() : comp.neutralColor.value.value;
         const connectorWidth = Math.max(1, comp.connectorWidth.value);
         const dotRadius = Math.max(3, comp.dotRadius.value);
         // v3 motion (§6): the now-dot's travel settles ONCE, capped at
@@ -654,14 +662,14 @@ export class Visual implements IVisual {
         const showBadge = comp.showVarianceBadge.value;
 
         const catFontSize = clamp(lbl.categoryFontSize.value, 8, 30);
-        let catColor = lbl.categoryColor.value.value === "#1a1a1a" && theme === "dark"
-            ? surfaceTokens("dark").text : lbl.categoryColor.value.value;
+        let catColor = lbl.categoryColor.value.value === "#1a1a1a"
+            ? this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#1a1a1a") : lbl.categoryColor.value.value;
         const valFontSize = clamp(lbl.valueFontSize.value, 8, 24);
-        let valColor = lbl.valueColor.value.value === "#333333" && theme === "dark"
-            ? surfaceTokens("dark").text : lbl.valueColor.value.value;
+        let valColor = lbl.valueColor.value.value === "#333333"
+            ? this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#333333") : lbl.valueColor.value.value;
         const thenFontSize = clamp(lbl.thenFontSize.value, 8, 24);
-        let thenValueColor = lbl.thenColor.value.value === "#5e5d5a" && theme === "dark"
-            ? surfaceTokens("dark").muted : lbl.thenColor.value.value;
+        let thenValueColor = lbl.thenColor.value.value === "#5e5d5a"
+            ? this.secondaryInk() : lbl.thenColor.value.value;
         const badgeFontSize = clamp(lbl.badgeFontSize.value, 8, 20);
         const nowLabelText = lbl.nowLabel.value || "Now";
         const thenLabelText = lbl.thenLabel.value || "Then";
@@ -865,6 +873,10 @@ export class Visual implements IVisual {
                 : (this.positiveColorHelper?.getColorForMeasure(instanceObjects, "nowValue") ?? positiveColor);
             const dirColor = row.direction === "positive" ? resolvedPositiveColor
                 : row.direction === "negative" ? negativeColor : neutralColor;
+            const automaticDirection = row.direction === "positive"
+                ? comp.positiveColor.value.value === "#007064" && !instanceObjects?.comparisonSettings?.positiveColor
+                : row.direction === "negative" ? comp.negativeColor.value.value === "#e60e22"
+                    : comp.neutralColor.value.value === "#5e5d5a";
 
             const g = this.svg.append("g")
                 .datum(row)
@@ -1041,8 +1053,8 @@ export class Visual implements IVisual {
             // stroke on the card surface colour, deliberately NOT
             // direction-tinted, so the beveled glow "now" dot always
             // dominates (§2 board language). ──
-            const thenRingColor = hc.active ? hc.color : surfaceTokens(theme).muted;
-            const thenFillColor = hc.active ? hc.background : surfaceTokens(theme).card;
+            const thenRingColor = hc.active ? hc.color : this.secondaryInk();
+            const thenFillColor = hc.active ? hc.background : this.currentSurface;
             const thenDot = g.append("circle")
                 .attr("cx", thenX).attr("cy", dumbbellY)
                 .attr("r", dotRadius)
@@ -1114,7 +1126,7 @@ export class Visual implements IVisual {
                     : (endpointLabelColorOverride || neutralColor);
                 const nowFill = this.isHighContrast
                     ? this.highContrastForeground
-                    : (endpointLabelColorOverride || dirColor);
+                    : (endpointLabelColorOverride || (automaticDirection ? this.readableInk(dirColor) : dirColor));
                 const thenWeight = endpointLabelBold ? "700" : "400";
                 const nowWeight = endpointLabelBold ? "700" : "600";
 
@@ -1156,7 +1168,7 @@ export class Visual implements IVisual {
                 .attr("font-style", thenStyleBase)
                 .attr("text-decoration", thenDecoration)
                 .attr("fill", thenValueColor)
-                .attr("opacity", 0.7)
+                .attr("opacity", 1)
                 .attr("font-family", thenFontFamily)
                 .style("font-feature-settings", TABULAR_NUMS)
                 .text(fmtVal(row.thenValue));
@@ -1192,7 +1204,7 @@ export class Visual implements IVisual {
             if (dur > 0) {
                 settle(thenValText.node() as unknown as SVGElement, [
                     { opacity: 0, transform: "translateY(3px)" },
-                    { opacity: 0.7, transform: "translateY(0)" },
+                    { opacity: 1, transform: "translateY(0)" },
                 ], { duration: Math.min(220, dur) });
                 settle(nowValText.node() as unknown as SVGElement, [
                     { opacity: 0, transform: "translateY(3px)" },
@@ -1235,9 +1247,11 @@ export class Visual implements IVisual {
                 // use the derived direction colour" idiom as
                 // endpointLabelColorOverride above (D-06 default preserves
                 // the existing dirColor-per-row behaviour exactly).
+                const badgeSurface = compositeOver(badgeDirColor, 88, this.currentSurface);
+                const automaticBadge = noBaselineOnly ? comp.neutralColor.value.value === "#5e5d5a" : automaticDirection;
                 const badgeFill = this.isHighContrast
                     ? this.highContrastForeground
-                    : (badgeColorOverride || badgeDirColor);
+                    : (badgeColorOverride || (automaticBadge ? this.readableInk(badgeDirColor, badgeSurface) : badgeDirColor));
                 const badgeText = g.append("text")
                     .attr("x", badgeX + pillWidth / 2)
                     .attr("y", badgeY)
@@ -1267,7 +1281,7 @@ export class Visual implements IVisual {
         // above any axis-title caption (Shared axis mode only, see the
         // gridlines block above).
         if (showGridlines) {
-            const tickColor = this.isHighContrast ? this.highContrastForeground : surfaceTokens(theme).muted;
+            const tickColor = this.isHighContrast ? this.highContrastForeground : this.secondaryInk();
             const tickY = margin.top + gridRowsHeight + 12;
             gridTickValues.forEach((v) => {
                 this.svg.append("text")
@@ -1339,8 +1353,8 @@ export class Visual implements IVisual {
             // Adaptive default (D-16 sentinel): untouched shared-Title navy
             // swaps to the dark text token on dark surfaces.
             const setTitle = t.titleColor?.value?.value ?? "#1a1a2e";
-            const adaptiveTitle = setTitle === "#1a1a2e" && this.currentTheme === "dark"
-                ? surfaceTokens("dark").text : setTitle;
+            const adaptiveTitle = setTitle === "#1a1a2e"
+                ? this.readableInk(this.currentTheme === "dark" ? surfaceTokens("dark").text : setTitle) : setTitle;
             this.titleEl.style.color = this.isHighContrast
                 ? this.highContrastForeground
                 : adaptiveTitle;
@@ -1354,7 +1368,7 @@ export class Visual implements IVisual {
 
     private renderEmpty(width: number, height: number, theme: Theme = "dark"): void {
         this.svg.attr("width", width).attr("height", height);
-        const fillColor = this.isHighContrast ? this.highContrastForeground : surfaceTokens(theme).muted;
+        const fillColor = this.isHighContrast ? this.highContrastForeground : this.secondaryInk();
         this.svg.append("text")
             .attr("x", width / 2).attr("y", height / 2)
             .attr("text-anchor", "middle")
