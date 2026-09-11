@@ -102,7 +102,7 @@ export class Visual implements IVisual {
     private scrollContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private titleEl: HTMLDivElement;
     private svg: Selection<SVGSVGElement, unknown, null, undefined>;
-    private formattingSettings: VisualFormattingSettingsModel;
+    private formattingSettings: VisualFormattingSettingsModel = new VisualFormattingSettingsModel();
     private formattingSettingsService: FormattingSettingsService;
     private previousData: string = "";
     private isHighContrast: boolean = false;
