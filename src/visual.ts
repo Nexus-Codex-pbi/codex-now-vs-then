@@ -135,6 +135,13 @@ export class Visual implements IVisual {
 
     private lastUpdateOptions: VisualUpdateOptions | null = null;
 
+    private readonly contextMenuHandler = (event: MouseEvent): void => {
+        const element = event.target instanceof Element ? event.target.closest(".metric-row") : null;
+        const row = element ? select(element).datum() as MetricRow : undefined;
+        this.selectionManager.showContextMenu(row?.selectionId || {}, { x: event.clientX, y: event.clientY });
+        event.preventDefault();
+        event.stopPropagation();
+    };
 
     constructor(options: VisualConstructorOptions) {
 
@@ -175,12 +182,8 @@ export class Visual implements IVisual {
         // the scrollContainer's padding/scroll-gutter regions don't bubble
         // contextmenu events reliably in PBI's sandbox, so a direct listener
         // is required to cover right-clicks in empty padding (Policy 1180.2.5).
-        const ctxHandler = (e: MouseEvent) => {
-            this.selectionManager.showContextMenu({}, { x: e.clientX, y: e.clientY });
-            e.preventDefault();
-        };
-        this.target.addEventListener("contextmenu", ctxHandler);
-        (this.scrollContainer.node() as HTMLElement).addEventListener("contextmenu", ctxHandler);
+        this.target.addEventListener("contextmenu", this.contextMenuHandler);
+        (this.scrollContainer.node() as HTMLElement).addEventListener("contextmenu", this.contextMenuHandler);
 
         // Internal title (rendered inside iframe so right-click on it
         // satisfies Policy 1180.2.5 — same shared-card approach as
@@ -814,6 +817,7 @@ export class Visual implements IVisual {
                 : row.direction === "negative" ? negativeColor : neutralColor;
 
             const g = this.svg.append("g")
+                .datum(row)
                 .classed("metric-row", true)
                 .attr("transform", `translate(0, ${yBase})`);
 
