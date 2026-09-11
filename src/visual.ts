@@ -572,8 +572,12 @@ export class Visual implements IVisual {
         const decimals = clamp(comp.decimalPlaces.value, 0, 6);
         if (format === "percent") return value.toFixed(decimals) + (difference ? " pp" : "%");
         const units = unitFor(String(comp.displayUnits.value?.value || "default"), format);
-        const formatted = formatValue(value, units, decimals);
-        return format === "currency" ? "$" + formatted : formatted;
+        if (format === "currency") {
+            const magnitude = formatValue(Math.abs(value), units, decimals);
+            const sign = value < 0 && parseFloat(magnitude) !== 0 ? "-" : "";
+            return sign + "$" + magnitude;
+        }
+        return formatValue(value, units, decimals);
     }
 
     private formatVariance(row: MetricRow): { varText: string; arrow: string; noBaselineOnly: boolean } {
