@@ -134,6 +134,7 @@ export class Visual implements IVisual {
     private licenseGate: LicenseGate;
 
     private lastUpdateOptions: VisualUpdateOptions | null = null;
+    private destroyed = false;
 
     private readonly contextMenuHandler = (event: MouseEvent): void => {
         const element = event.target instanceof Element ? event.target.closest(".metric-row") : null;
@@ -222,6 +223,7 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions): void {
+        if (this.destroyed) return;
         this.eventService.renderingStarted(options);
         this.lastUpdateOptions = options;
 
@@ -252,7 +254,8 @@ export class Visual implements IVisual {
             this.scrollContainer.style("width", width + "px").style("height", height + "px");
 
             // Clear (re-creates <defs> below — selectAll("*") also removes it)
-            this.svg.selectAll("*").remove();
+            this.svg.node()?.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+            this.svg.selectAll("*").interrupt().on("mousemove mouseleave click keydown", null).remove();
             this.gradientDefs = this.svg.append("defs") as unknown as
                 Selection<SVGDefsElement, unknown, null, undefined>;
 
@@ -1337,11 +1340,29 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
+        if (this.destroyed) return;
+        this.destroyed = true;
         // Drop the in-flight licence check FIRST: its redraw callback replays
         // update() against a torn-down target otherwise (NEXUS lifecycle finding).
         this.licenseGate.dispose();
+        this.lastUpdateOptions = null;
+        this.previousData = "";
+        this.target.removeEventListener("contextmenu", this.contextMenuHandler);
+        this.scrollContainer.node()?.removeEventListener("contextmenu", this.contextMenuHandler);
+        this.svg.node()?.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+        this.svg.selectAll("*").interrupt().on("mousemove mouseleave click keydown", null).remove();
+        this.svg.interrupt();
+        this.tooltipService.hide({ isTouchEvent: false, immediately: true });
         this.cornerSignature?.destroy();
         this.cornerSignature = null;
+        this.scrollContainer.remove();
+        this.scrollContainer = null;
+        this.titleEl = null;
+        this.gradientDefs = null;
+        this.borderRect = null;
+        this.categoricalCategories = undefined;
+        this.positiveColorHelper = null;
+        this.valueColorHelper = null;
         this.svg = null;
         this.target = null;
     }
