@@ -62,6 +62,11 @@ import ServicePlan = powerbi.extensibility.visual.ServicePlan;
  *  OPEN and the redraw callback re-runs update() once the answer lands. A licensed
  *  user therefore never sees a flash of blocked state.
  *
+ *  LIFECYCLE: the gate holds an in-flight promise that outlives the visual. Call
+ *  `dispose()` as the FIRST line of the visual's destroy() — NEXUS lifecycle finding
+ *  (cycle-01 §5, cycle-05 §9) caught the redraw callback replaying update() against a
+ *  destroyed target and throwing a live renderingFailed on page change.
+ *
  *  NOTE: powerbi.ServicePlanState and powerbi.LicenseNotificationType are
  *  `const enum`s — they must be referenced inline and never aliased to a local,
  *  or `pbiviz package` fails with TS2475.
@@ -158,12 +163,29 @@ export function clearNotification(host: IVisualHost): void {
 export class LicenseGate {
     private state: LicenseState = OPEN;
     private notified = false;
+    private disposed = false;
+    private onResolved?: () => void;
 
     constructor(private host: IVisualHost, onResolved?: () => void) {
+        this.onResolved = onResolved;
         checkLicense(host).then((s) => {
+            if (this.disposed) return;
             this.state = s;
-            if (onResolved) onResolved();
+            if (this.onResolved) this.onResolved();
         });
+    }
+
+    /**
+     *  Abandon the in-flight licence check. MUST be the FIRST line of the visual's
+     *  destroy(): the constructor's promise resolves long after Power BI tears the
+     *  visual down on a page change, and the redraw callback replays update() against
+     *  a nulled DOM target — "Cannot read properties of null (reading 'style')", a
+     *  live renderingFailed (NEXUS lifecycle finding, cycle-01 §5 / cycle-05 §9).
+     *  Idempotent; safe to call when no check is outstanding.
+     */
+    public dispose(): void {
+        this.disposed = true;
+        this.onResolved = undefined;
     }
 
     public get blocked(): boolean {
