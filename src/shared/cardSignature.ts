@@ -27,6 +27,12 @@ export interface CardSignatureOptions {
     /** Muted/no-data state — dims the signature and disables glow. */
     muted?: boolean;
     mutedColor?: string;
+    /** High-contrast mode: paint every variant as SOLID system colour — no
+     *  gradients, specular strips, glow or muted fade. Flat Bar / Glass Tube
+     *  synthesised non-palette stops (pale/olive from a yellow foreground,
+     *  white shine) after receiving the right HC hex (astra pass three:
+     *  Progress Bar §A6, Zone Gauge §A4, KPI Wall §A8). */
+    highContrast?: boolean;
 }
 
 export interface CardSignatureHandle {
@@ -46,6 +52,7 @@ const DEFAULTS: ResolvedOptions = {
     glowMix: 55,
     muted: false,
     mutedColor: "#8f8ab8",
+    highContrast: false,
 };
 
 function resolveOptions(opts: CardSignatureOptions, base: ResolvedOptions = DEFAULTS): ResolvedOptions {
@@ -58,6 +65,7 @@ function resolveOptions(opts: CardSignatureOptions, base: ResolvedOptions = DEFA
         glowMix: opts.glowMix ?? base.glowMix,
         muted: opts.muted ?? base.muted,
         mutedColor: opts.mutedColor ?? base.mutedColor,
+        highContrast: opts.highContrast ?? base.highContrast,
     };
 }
 
@@ -71,7 +79,8 @@ function clearChildren(el: HTMLElement): void {
 
 function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opts: ResolvedOptions): void {
     clearChildren(el);
-    const color = opts.muted ? opts.mutedColor : bandHex;
+    const hc = opts.highContrast;
+    const color = opts.muted && !hc ? opts.mutedColor : bandHex;
 
     el.style.position = "absolute";
     el.style.pointerEvents = "none";
@@ -80,8 +89,8 @@ function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opt
     el.style.top = el.style.right = el.style.bottom = el.style.left = "";
     el.style.width = `${opts.size}px`;
     el.style.height = `${opts.size}px`;
-    el.style.opacity = opts.muted ? "0.4" : "1";
-    el.style.filter = opts.muted ? "none" : glowFilter(color, opts.glowMix);
+    el.style.opacity = opts.muted && !hc ? "0.4" : "1";
+    el.style.filter = opts.muted || hc ? "none" : glowFilter(color, opts.glowMix);
     el.style.borderRadius = "0";
 
     if (opts.variant === "flatBar") {
@@ -96,7 +105,7 @@ function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opt
         el.style.left = "0";
         el.style.height = "auto";
         el.style.width = `${opts.thickness}px`;
-        el.style.background = accentBarGradient(color);
+        el.style.background = hc ? color : accentBarGradient(color);
         el.style.borderRadius = `${opts.cardRadius}px 0 0 ${opts.cardRadius}px`;
         return;
     }
@@ -112,7 +121,7 @@ function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opt
         if (corner === "tl") { el.style.top = "0"; el.style.left = "0"; }
         else { el.style.bottom = "0"; el.style.right = "0"; }
         const tubeW = opts.thickness + 3;
-        const glow = opts.muted || opts.glowMix === 0 ? "none" : `0 0 8px color-mix(in srgb, ${color} ${Math.max(opts.glowMix, 35)}%, transparent)`;
+        const glow = opts.muted || hc || opts.glowMix === 0 ? "none" : `0 0 8px color-mix(in srgb, ${color} ${Math.max(opts.glowMix, 35)}%, transparent)`;
         const mkArm = (horizontal: boolean): HTMLElement => {
             const arm = document.createElement("div");
             arm.style.position = "absolute";
@@ -126,7 +135,7 @@ function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opt
             const fadeDir = horizontal
                 ? (corner === "tl" ? "90deg" : "270deg")
                 : (corner === "tl" ? "180deg" : "0deg");
-            arm.style.background = `linear-gradient(${fadeDir}, ${color}, color-mix(in srgb, ${color} 55%, transparent) 70%, transparent)`;
+            arm.style.background = hc ? color : `linear-gradient(${fadeDir}, ${color}, color-mix(in srgb, ${color} 55%, transparent) 70%, transparent)`;
             arm.style.boxShadow = glow;
             if (horizontal) {
                 arm.style.height = `${tubeW}px`;
@@ -137,7 +146,9 @@ function styleBracket(el: HTMLElement, corner: "tl" | "br", bandHex: string, opt
                 arm.style.top = "0"; arm.style.bottom = "0";
                 arm.style[corner === "tl" ? "left" : "right"] = "0";
             }
-            // Specular highlight strip along the arm (the "glass").
+            // Specular highlight strip along the arm (the "glass") — a white
+            // shine is a non-palette colour under high contrast, so none there.
+            if (hc) return arm;
             const spec = document.createElement("div");
             spec.style.position = "absolute";
             spec.style.pointerEvents = "none";

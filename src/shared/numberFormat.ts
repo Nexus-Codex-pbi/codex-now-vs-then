@@ -39,6 +39,26 @@ export function fractionDigitsFor(format: string | null | undefined): { min: num
     return { min, max: min + optional };
 }
 
+function numericSections(format: string): string[] {
+    const sections: string[] = [];
+    let start = 0;
+    let quote = "";
+    for (let i = 0; i < format.length; i++) {
+        const c = format[i];
+        if (c === "\\") { i++; continue; }
+        if (quote) {
+            if (c === quote) quote = "";
+        } else if (c === '"' || c === "'") {
+            quote = c;
+        } else if (c === ";") {
+            sections.push(format.slice(start, i));
+            start = i + 1;
+        }
+    }
+    sections.push(format.slice(start));
+    return sections;
+}
+
 /**
  *  Render a number the way the six visuals' duplicated `formatValue` did, with
  *  the min/max split above applied. Behaviour preserved verbatim otherwise:
@@ -58,6 +78,20 @@ export function fractionDigitsFor(format: string | null | undefined): { min: num
  */
 export function formatModelNumber(n: number, format: string | null | undefined, locale?: string): string {
     if (!format) return n.toLocaleString(locale);
+
+    // Apply an explicit accounting negative section without changing the
+    // existing single-section, currency-sign or optional-precision policies.
+    // (astra pass three, every visual: `#,0.00;(#,0.00)` rendered "-1,234.56".)
+    if (n < 0) {
+        const sections = numericSections(format);
+        const negative = sections[1]?.trim();
+        if (negative?.startsWith("(") && negative.endsWith(")")) {
+            const body = formatModelNumber(Math.abs(n), negative.slice(1, -1), locale);
+            // .NET: a negative that rounds to zero in its own section is
+            // rendered with the positive section, never as "(0.00)".
+            return /[1-9]/.test(body) ? `(${body})` : formatModelNumber(0, sections[0], locale);
+        }
+    }
 
     // Percentage formats: "0.00%;-0.00%;0.00%", "0%", "0.0%". Power BI stores
     // percentages as decimals (0.046 = 4.6%).
