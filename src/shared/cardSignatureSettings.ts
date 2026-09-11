@@ -13,8 +13,14 @@
 // rule) — resolveCardSignature enforces that; visuals should not add
 // their own HC branches around it.
 
+import powerbi from "powerbi-visuals-api";
 import { formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import type { CardSignatureHandle, CardSignatureVariant } from "./cardSignature";
+
+// fx (conditional formatting) on the accent colour — same wiring as the
+// Title and Background colour pickers (Neil 2026-09-12: "we do not have the
+// fx function for the accents on any visual").
+const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
 
 import FormattingSettingsCard = formattingSettings.SimpleCard;
 import FormattingSettingsSlice = formattingSettings.Slice;
@@ -47,7 +53,8 @@ export class CardSignatureSettings extends FormattingSettingsCard {
     color = new formattingSettings.ColorPicker({
         name: "color",
         displayName: "Custom Color",
-        value: { value: "#8f8ab8" }
+        value: { value: "#8f8ab8" },
+        instanceKind: ConstantOrRule
     });
 
     mirrorCorners = new formattingSettings.ToggleSwitch({
