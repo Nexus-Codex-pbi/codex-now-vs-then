@@ -631,7 +631,7 @@ export class Visual implements IVisual {
         const categoryDecoration = lbl.categoryUnderline.value ? "underline" : "none";
 
         const valueFontFamily = lbl.valueFontFamily.value || "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
-        const valueWeight = weightFor(lbl.valueBold.value, "700");
+        const valueWeight = weightFor(lbl.valueBold.value, "400");
         const valueStyle = lbl.valueItalic.value ? "italic" : "normal";
         const valueDecoration = lbl.valueUnderline.value ? "underline" : "none";
 
@@ -641,7 +641,7 @@ export class Visual implements IVisual {
         const thenDecoration = lbl.thenUnderline.value ? "underline" : "none";
 
         const badgeFontFamily = lbl.badgeFontFamily.value || "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
-        const badgeWeight = weightFor(lbl.badgeBold.value, "700");
+        const badgeWeight = weightFor(lbl.badgeBold.value, "400");
         const badgeStyle = lbl.badgeItalic.value ? "italic" : "normal";
         const badgeDecoration = lbl.badgeUnderline.value ? "underline" : "none";
 
