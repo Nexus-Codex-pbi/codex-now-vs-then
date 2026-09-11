@@ -58,3 +58,32 @@ export function surfaceTone(hex: string): "light" | "dark" {
     const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? "light" : "dark";
 }
+
+// ─── WCAG contrast-maximising ink (Heatmap Matrix probe, 2026-09-11) ─────────
+// surfaceTone()'s Rec.601 bucket reads saturated cyan rgb(1,191,227) as 0.542
+// → "dark" and puts WHITE on it (1.8:1); WCAG relative luminance says black
+// (9.1:1). Over 184 real heatmap cells, tone-bucketing left 11 cells under
+// 3:1; picking the higher-contrast candidate left 0. Use contrastInk() where
+// the surface can be any saturated colour (ramps, data-driven fills);
+// surfaceTone() remains for neutral card/background surfaces.
+function relLuminance(hex: string): number {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex ?? "");
+    if (!m) return 0;
+    const lin = (c: string) => {
+        const v = parseInt(c, 16) / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * lin(m[1]) + 0.7152 * lin(m[2]) + 0.0722 * lin(m[3]);
+}
+
+/** WCAG 2.x contrast ratio between two hex colours (1..21). */
+export function contrastRatio(aHex: string, bHex: string): number {
+    const a = relLuminance(aHex), b = relLuminance(bHex);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/** Of `darkInk` and `lightInk`, the one with the higher WCAG contrast on
+ *  `surfaceHex` (pass the COMPOSITED surface — see compositeOver). */
+export function contrastInk(surfaceHex: string, darkInk: string, lightInk: string): string {
+    return contrastRatio(surfaceHex, darkInk) >= contrastRatio(surfaceHex, lightInk) ? darkInk : lightInk;
+}

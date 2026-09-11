@@ -129,7 +129,11 @@ export function applyCardSignature(
     handle.update(r.hex, {
         variant: r.variant,
         glowMix: p.glowMix,
-        muted: p.muted,
+        // High contrast outranks the muted (empty-state) treatment: styleBracket
+        // paints `mutedColor` at 0.4 opacity when muted, which discarded the
+        // resolved HC foreground in every visual's empty state (NEXUS cycle-12
+        // §8, measured brand violet rgb(143,138,184) on black).
+        muted: p.muted && !p.hcActive,
         mirror: sig ? sig.mirrorCorners.value : p.mirror,
         cardRadius: (sig && sig.cornerRadius.value !== 10)
             ? Math.max(0, Math.min(24, sig.cornerRadius.value))
