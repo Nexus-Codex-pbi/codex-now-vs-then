@@ -48,7 +48,9 @@ interface MetricRow {
     thenValue: number;
     sortOrder: number | null;
     change: number;
-    changePct: number;
+    /** Relative change, or null when Then is zero — a zero baseline has no
+     *  percentage to express (NEXUS cycle-09 §1). `change` stays real. */
+    changePct: number | null;
     rowFormat: string | null;       // "number" | "currency" | "percent" | null (use global)
     rowDirection: string | null;    // "upIsGood" | "downIsGood" | null (default upIsGood)
     direction: "positive" | "negative" | "neutral";
@@ -87,6 +89,11 @@ function prefersReducedMotion(): boolean {
     }
 }
 
+
+/** The "no value" glyph this visual already renders through utils.formatValue()
+ *  for a null/NaN reading. Reused for an undefined relative change so the two
+ *  gaps read identically (NEXUS cycle-09 §1). */
+const NO_VALUE = "—";
 
 /** #657 — resolve the display unit. "default" reproduces the previous hardcoded per-format
  *  behaviour exactly (currency -> auto, number -> none, otherwise auto). */
@@ -431,7 +438,13 @@ export class Visual implements IVisual {
             if (nowVal === null || thenVal === null) continue;
 
             const change = nowVal - thenVal;
-            const changePct = thenVal !== 0 ? (change / Math.abs(thenVal)) * 100 : 0;
+            // A zero baseline has no relative change to express. The old
+            // fallback reported EVERY rise from zero as "+0.0%" — 0 -> 10 read
+            // as no movement at all (NEXUS cycle-09 §1). null means "no
+            // baseline": the badge and the tooltip render the same em-dash
+            // utils.formatValue() already uses for a missing reading. The raw
+            // `change` is untouched and still drives arrow/direction/absolute.
+            const changePct = thenVal !== 0 ? (change / Math.abs(thenVal)) * 100 : null;
 
             // Per-row format and direction from data roles
             const rowFormat = getStr("format");
@@ -796,7 +809,9 @@ export class Visual implements IVisual {
                     { displayName: "Category", value: rowRef.category },
                     { displayName: nowLabelText, value: fmtRowVal(rowRef.nowValue, rowRef) },
                     { displayName: thenLabelText, value: fmtRowVal(rowRef.thenValue, rowRef) },
-                    { displayName: "Change", value: (rowRef.change >= 0 ? "+" : "") + rowRef.changePct.toFixed(1) + "%" }
+                    { displayName: "Change", value: rowRef.changePct === null
+                        ? NO_VALUE
+                        : (rowRef.change >= 0 ? "+" : "") + rowRef.changePct.toFixed(1) + "%" }
                 ];
                 tooltipSvc.show({
                     coordinates: [event.clientX, event.clientY],
@@ -1096,10 +1111,22 @@ export class Visual implements IVisual {
                 // Arrow reflects raw numeric movement (Now vs Then), independent of
                 // the good/bad colour semantics. e.g. a downIsGood metric trending up
                 // shows \u25B2 in red \u2014 value went up, but that's bad for this metric.
-                const arrow = row.change > 0 ? "\u25B2" : row.change < 0 ? "\u25BC" : "";
+                // No baseline (Then is zero) -> no percentage. When the
+                // percentage is the ONLY thing this badge carries, the badge
+                // has nothing to report: em-dash, no arrow, neutral ink
+                // (NEXUS cycle-09 \u00A71). In absolute/both mode the raw change is
+                // still a real reading, so it keeps its arrow and direction
+                // colour and only the percent slot goes to the em-dash.
+                const noBaseline = row.changePct === null;
+                const noBaselineOnly = noBaseline && varianceFmt === "percent";
+                const badgeDirColor = noBaselineOnly ? neutralColor : dirColor;
+                const arrow = noBaselineOnly ? ""
+                    : row.change > 0 ? "\u25B2" : row.change < 0 ? "\u25BC" : "";
                 let varText = "";
                 if (varianceFmt === "percent" || varianceFmt === "both") {
-                    varText += (row.changePct >= 0 ? "+" : "") + row.changePct.toFixed(1) + "%";
+                    varText += noBaseline
+                        ? NO_VALUE
+                        : (row.changePct >= 0 ? "+" : "") + row.changePct.toFixed(1) + "%";
                 }
                 if (varianceFmt === "absolute" || varianceFmt === "both") {
                     if (varText) varText += " ";
@@ -1117,7 +1144,7 @@ export class Visual implements IVisual {
                     .attr("width", pillWidth)
                     .attr("height", pillHeight)
                     .attr("rx", pillHeight / 2)
-                    .attr("fill", dirColor)
+                    .attr("fill", badgeDirColor)
                     .attr("opacity", 0.12);
 
                 // Badge text — badgeColorOverride follows the same "empty =
@@ -1126,7 +1153,7 @@ export class Visual implements IVisual {
                 // the existing dirColor-per-row behaviour exactly).
                 const badgeFill = this.isHighContrast
                     ? this.highContrastForeground
-                    : (badgeColorOverride || dirColor);
+                    : (badgeColorOverride || badgeDirColor);
                 const badgeText = g.append("text")
                     .attr("x", badgeX + pillWidth / 2)
                     .attr("y", badgeY)
