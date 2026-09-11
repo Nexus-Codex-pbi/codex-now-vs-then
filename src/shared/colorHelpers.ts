@@ -34,3 +34,27 @@ export function toRgba(hex: string, transparencyPct: number): string {
     const alpha = (100 - clampedPct) / 100;
     return hexToRGBString(hex, alpha);
 }
+
+// ─── Composited surface + ink tone (NEXUS review 2026-09-11, class 1) ───────
+// 9 of 15 visuals chose adaptive ink from the RAW fill hex while painting that
+// fill with transparency — the ink was judged against a colour nobody sees.
+// The visible surface is the fill composited over whatever sits behind it.
+// Use compositeOver() first, then surfaceTone() on the RESULT. Threshold and
+// weights match the per-visual choosers already in the suite (Rec.601, 0.55)
+// so behaviour only changes where the surface was actually translucent.
+import { mix } from "./designTokens";
+
+/** The colour a viewer sees: `fillHex` at PBI transparency `transparencyPct`
+ *  (0 = opaque, 100 = invisible) painted over `behindHex`. */
+export function compositeOver(fillHex: string, transparencyPct: number, behindHex: string): string {
+    const alpha = (100 - Math.max(0, Math.min(100, transparencyPct ?? 0))) / 100;
+    return mix(behindHex, fillHex, alpha);
+}
+
+/** "light" when ink on this surface should be dark, "dark" when it should be light. */
+export function surfaceTone(hex: string): "light" | "dark" {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex ?? "");
+    if (!m) return "dark";
+    const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? "light" : "dark";
+}
