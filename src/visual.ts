@@ -819,6 +819,10 @@ export class Visual implements IVisual {
             const g = this.svg.append("g")
                 .datum(row)
                 .classed("metric-row", true)
+                .attr("tabindex", 0)
+                .attr("role", "button")
+                .attr("aria-label", `${row.category}; ${thenLabelText} ${fmtRowVal(row.thenValue, row)}; ${nowLabelText} ${fmtRowVal(row.nowValue, row)}; Change ${this.formatVariance(row).varText}`)
+                .style("color", catColor)
                 .attr("transform", `translate(0, ${yBase})`);
 
             // Invisible hit rect for tooltip and cross-filter
@@ -858,6 +862,24 @@ export class Visual implements IVisual {
                 if (rowRef.selectionId) {
                     selMgr.select(rowRef.selectionId, event.ctrlKey || event.metaKey);
                 }
+                event.stopPropagation();
+            });
+            g.on("keydown", function (event: KeyboardEvent) {
+                if (event.key === "Enter" || event.key === " ") {
+                    if (rowRef.selectionId) selMgr.select(rowRef.selectionId, event.ctrlKey || event.metaKey);
+                } else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+                    const bounds = this.getBoundingClientRect();
+                    selMgr.showContextMenu(rowRef.selectionId || {}, { x: bounds.x + 8, y: bounds.y + 8 });
+                } else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+                    const targets = Array.from(this.parentElement.querySelectorAll<SVGGElement>(".metric-row"));
+                    const index = targets.indexOf(this);
+                    const next = event.key === "Home" ? 0 : event.key === "End" ? targets.length - 1
+                        : clamp(index + (event.key === "ArrowUp" ? -1 : 1), 0, targets.length - 1);
+                    targets[next]?.focus();
+                } else {
+                    return;
+                }
+                event.preventDefault();
                 event.stopPropagation();
             });
 
