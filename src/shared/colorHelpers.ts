@@ -93,7 +93,11 @@ export function contrastInk(surfaceHex: string, darkInk: string, lightInk: strin
  *  fixed muted tokens (#8f8ab8 / #5b5b74) sit near mid-grey by design and read
  *  at 1.2–3.0:1 on mid-grey tiles (Icon Gauge, NEXUS re-review 2026-09-11);
  *  a muted ink must be relative to the surface it sits on, not a constant. */
-export function mutedInk(inkHex: string, surfaceHex: string, minRatio = 4.5, mixAmount = 0.45): string {
+// Floor is 6:1, not 4.5:1: the status/secondary line is 12px, and at 4.5 the
+// derived ink on plain white read visibly weaker than the fixed token it
+// replaced (6.6:1 → 4.8:1, Neil 2026-09-11 "fix icon gauge"). Where the
+// surface cannot reach 6:1 at all (mid-grey), the headline ink is returned.
+export function mutedInk(inkHex: string, surfaceHex: string, minRatio = 6, mixAmount = 0.45): string {
     for (let t = mixAmount; t >= 0; t -= 0.05) {
         const candidate = mix(inkHex, surfaceHex, t);
         if (contrastRatio(candidate, surfaceHex) >= minRatio) return candidate;
