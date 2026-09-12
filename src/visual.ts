@@ -39,7 +39,7 @@ import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import {
-    ResolvedCodexTheme, resolveCodexTheme, neonColorFor, neonFilter, flareHexFor } from "./shared/codexThemeSettings";
+    ResolvedCodexTheme, resolveCodexTheme, neonColorFor, neonFilter, flareHexFor, forcedInk } from "./shared/codexThemeSettings";
 import { settle, MOTION_MAX_MS } from "./shared/motion";
 import { applyHighContrast } from "./shared/highContrast";
 import { LicenseGate } from "./shared/licensing";
@@ -285,12 +285,12 @@ export class Visual implements IVisual {
             this.currentBackgroundCss = background.css;
             const theme: Theme = background.theme;
             this.currentTheme = theme;
-            // A forced mode OWNS the text inks (category labels, Now/Then
-            // values, the visual title, axis titles) against its own
-            // composited surface — an ink the user picked for a white card is
-            // not a choice about the Codex dark surface. Direction/band/fx
-            // colours stay the user's. Auto keeps every pane ink as-is.
-            const inkOverride = codex.mode !== "auto";
+            // A forced mode owns the text inks (category labels, Now/Then
+            // values, the visual title, axis titles) it was never given — an
+            // untouched pane default is not a choice about the Codex surface —
+            // and GUARDS the ones it was: forcedInk keeps an explicit ink that
+            // still reads at 4.5:1 there. Direction/band/fx colours stay the
+            // user's. Auto keeps every pane ink as-is.
             const hc = applyHighContrast(colorPalette, { fallbackColor: accentToken(theme) });
             const sc = this.scrollContainer.node() as HTMLElement;
             sc.style.boxSizing = "border-box";
@@ -372,9 +372,15 @@ export class Visual implements IVisual {
             // raw #333333 seed made the value dark-on-dark (Neil 2026-07-13).
             // #819: a forced Codex mode adapts this seed too — otherwise a
             // report whose Now value ink was picked for a white card seeds the
-            // fx helper with near-black text on the Codex dark surface.
-            const adaptedValueDefault = inkOverride || valueColorSlice.value.value === "#333333"
-                ? this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#333333") : valueColorSlice.value.value;
+            // fx helper with near-black text on the Codex dark surface. Rule 3
+            // (forcedInk): an EXPLICIT seed survives a forced mode when it still
+            // reads on that mode's surface. Only the constant swatch passes
+            // through here — an fx RULE resolves later in getColorForMeasure and
+            // is never overridden.
+            const adaptedValueDefault = forcedInk(
+                valueColorSlice.value.value,
+                this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#333333"),
+                codex, valueColorSlice.value.value === "#333333");
             this.valueColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "labelSettings", propertyName: "valueColor" },
@@ -715,6 +721,11 @@ export class Visual implements IVisual {
         const codex = this.codex;
         const inkOverride = codex ? codex.mode !== "auto" : false;
         const flare = (hex: string): string => codex ? neonColorFor(hex, codex) : hex;
+        // Rule 3 in this file's idiom: the pane value, the forced mode's own
+        // default, and the sentinel that says "the user never touched it".
+        const ink = (userHex: string, modeDefaultHex: string, sentinelHex: string): string =>
+            codex ? forcedInk(userHex, modeDefaultHex, codex, userHex === sentinelHex)
+                : (userHex === sentinelHex ? modeDefaultHex : userHex);
 
         // Direction law (v2 design): increases lime, decreases magenta,
         // untouched only — a user pick still wins.
@@ -741,17 +752,18 @@ export class Visual implements IVisual {
         const showBadge = comp.showVarianceBadge.value;
 
         const catFontSize = clamp(lbl.categoryFontSize.value, 8, 30);
-        // #819 ink sites: `inkOverride ||` is what turns each of these from
-        // "adapt the untouched default" into "adapt when a Codex mode is
-        // forced OR the default is untouched". Body text — these never glow.
-        let catColor = inkOverride || lbl.categoryColor.value.value === "#1a1a1a"
-            ? this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#1a1a1a") : lbl.categoryColor.value.value;
+        // #819 rule 3 ink sites: forcedInk is the ONE rule — Auto leaves the
+        // pane value alone, a forced mode takes its own default when the pane
+        // is untouched, and an explicit ink survives the forced mode whenever
+        // it still reads at 4.5:1 on that mode's surface. Body text — these
+        // never glow.
+        let catColor = ink(lbl.categoryColor.value.value,
+            this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#1a1a1a"), "#1a1a1a");
         const valFontSize = clamp(lbl.valueFontSize.value, 8, 24);
-        let valColor = inkOverride || lbl.valueColor.value.value === "#333333"
-            ? this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#333333") : lbl.valueColor.value.value;
+        let valColor = ink(lbl.valueColor.value.value,
+            this.readableInk(theme === "dark" ? surfaceTokens("dark").text : "#333333"), "#333333");
         const thenFontSize = clamp(lbl.thenFontSize.value, 8, 24);
-        let thenValueColor = inkOverride || lbl.thenColor.value.value === "#5e5d5a"
-            ? this.secondaryInk() : lbl.thenColor.value.value;
+        let thenValueColor = ink(lbl.thenColor.value.value, this.secondaryInk(), "#5e5d5a");
         const badgeFontSize = clamp(lbl.badgeFontSize.value, 8, 20);
         const nowLabelText = lbl.nowLabel.value || "Now";
         const thenLabelText = lbl.thenLabel.value || "Then";
@@ -791,7 +803,12 @@ export class Visual implements IVisual {
         const badgeStyle = lbl.badgeItalic.value ? "italic" : "normal";
         const badgeDecoration = lbl.badgeUnderline.value ? "underline" : "none";
 
-        let trackColor = style.trackColor.value.value === "#1c1c3a"
+        // #819 rule 2: the dumbbell track is CHROME, not data — it carries no
+        // value, it is the groove the marks travel in. A forced mode re-tones
+        // it to that mode's own track token, so a track colour picked for a
+        // white card doesn't stay a pale bar on the Codex dark surface. Auto
+        // is untouched, and the marks, band and chip fills stay the user's.
+        let trackColor = inkOverride || style.trackColor.value.value === "#1c1c3a"
             ? surfaceTokens(theme).track : style.trackColor.value.value;
         const trackHeight = Math.max(1, style.trackHeight.value);
         const rowSpacing = Math.max(4, style.rowSpacing.value);
@@ -1177,24 +1194,24 @@ export class Visual implements IVisual {
                 grad.append("stop").attr("offset", "100%").attr("stop-color", mix(dirColor, "#000000", 0.55));
             }
             const nowFill = hc.active ? hc.color : `url(#${nowGradId})`;
-            // #819 glow site: Neon hands this marker the card's glow budget
-            // and, in "Flare colour only" scope, the flare hue — the BEVEL
-            // fill stays the direction colour either way, because the
-            // good/bad reading is data, not decoration. Outside Neon the
-            // shipped dark-only 55 / light-only 0 budget is unchanged, and
-            // high contrast still gets no glow at all (§8).
+            // #819 glow site: Neon hands this marker the card's glow budget.
+            // Rule 1 — the now dot IS the good/bad reading, so its glow burns
+            // in the direction hue in every scope; the flare never tints it.
+            // The BEVEL fill was already the direction colour for the same
+            // reason. Outside Neon the shipped dark-only 55 / light-only 0
+            // budget is unchanged, and high contrast gets no glow at all (§8).
             const glowMix = hc.active ? 0 : codex?.neon ? codex.glow : (theme === "dark" ? 55 : 0);
-            const glowHex = flare(dirColor);
+            const glowHex = dirColor;
             const nowDot = g.append("circle")
                 .attr("cx", nowX).attr("cy", dumbbellY)
                 .attr("r", dotRadius + 1)
                 .attr("fill", nowFill)
-                // The bevel's white ring is chrome, not data: under Neon with
-                // "Flare colour only" it takes the flare hue, because a white
-                // ring swallowed a #ac74da flare at glowStrength 55 and the
-                // marker read as un-flared. `flare()` returns "#ffffff"
-                // unchanged in every other mode and in "All selected colours"
-                // scope — white glows in its own hue there.
+                // The bevel's white ring is dot CHROME, not data — the one
+                // accent on this marker, and hueless, so rule 1 leaves it on
+                // the flare: under "Flare colour only" it takes the flare hue
+                // and is what still says "Neon" now that the glow above burns
+                // in the direction hue. `flare()` returns "#ffffff" unchanged
+                // in every other mode and in "All selected colours" scope.
                 .attr("stroke", hc.active ? hc.color : flare("#ffffff"))
                 .attr("stroke-width", hc.active ? hc.borderWidth : 2)
                 .style("filter", glowMix > 0
@@ -1225,14 +1242,17 @@ export class Visual implements IVisual {
                 // (NEXUS cycle-09 §5): a black override on the black HC canvas
                 // painted both captions invisible, because the override was
                 // applied AFTER the HC colours had been resolved.
-                // #819: an explicit endpoint-label colour is still the user's
-                // choice, so a forced Codex mode does not replace it — it only
-                // runs it through readableInk(), which returns the colour
-                // unchanged whenever it already clears 4.5:1 on the Codex
-                // surface and flips it to black/white only when it would
-                // otherwise vanish into that surface.
-                const endpointOverrideInk = endpointLabelColorOverride && inkOverride
-                    ? this.readableInk(endpointLabelColorOverride) : endpointLabelColorOverride;
+                // #819 rule 3: an explicit endpoint-label colour is still the
+                // user's choice, so a forced Codex mode does not replace it —
+                // the guard this visual already had, now spelled with the
+                // shared forcedInk so the suite has ONE rule. The caption has
+                // no mode default of its own (empty falls back to the direction
+                // colour below), so the fallback is the same black/white
+                // readableInk() would have picked for this surface.
+                const endpointOverrideInk = endpointLabelColorOverride && codex
+                    ? forcedInk(endpointLabelColorOverride,
+                        contrastInk(this.currentSurface, "#000000", "#ffffff"), codex, false)
+                    : endpointLabelColorOverride;
                 const thenFill = this.isHighContrast
                     ? this.highContrastForeground
                     : (endpointOverrideInk || neutralColor);
@@ -1362,9 +1382,11 @@ export class Visual implements IVisual {
                 // carrying the same filter reads as a chip at every budget.
                 // The badge text is body-sized and this visual has no
                 // headline, so nothing here earns a text glow.
+                // Rule 1 — the chip carries the delta's direction, so its edge
+                // and halo stay in that hue; the flare never tints them.
                 let pillEdge: typeof pill | null = null;
                 if (codex?.neon && !hc.active) {
-                    const edgeHex = flare(badgeDirColor);
+                    const edgeHex = badgeDirColor;
                     pillEdge = g.append("rect")
                         .attr("x", badgeX)
                         .attr("y", badgeY - pillHeight / 2)
@@ -1383,11 +1405,16 @@ export class Visual implements IVisual {
                 // the existing dirColor-per-row behaviour exactly).
                 const badgeSurface = compositeOver(badgeDirColor, 88, this.currentSurface);
                 const automaticBadge = noBaselineOnly ? comp.neutralColor.value.value === "#5e5d5a" : automaticDirection;
-                // #819: same treatment as the endpoint-label override — a
-                // forced mode guards an explicit badge ink against the badge's
-                // own composited pill surface rather than overwriting it.
-                const badgeOverrideInk = badgeColorOverride && inkOverride
-                    ? this.readableInk(badgeColorOverride, badgeSurface) : badgeColorOverride;
+                // #819 rule 3: same treatment as the endpoint-label override —
+                // a forced mode guards an explicit badge ink rather than
+                // overwriting it. The surface handed to forcedInk is the PILL,
+                // not the card: this text sits on a 12%-opacity direction chip,
+                // and judging it against the card behind the chip would pass an
+                // ink that vanishes on the chip itself.
+                const badgeOverrideInk = badgeColorOverride && codex
+                    ? forcedInk(badgeColorOverride, contrastInk(badgeSurface, "#000000", "#ffffff"),
+                        { ...codex, surfaceHex: badgeSurface }, false)
+                    : badgeColorOverride;
                 const badgeFill = this.isHighContrast
                     ? this.highContrastForeground
                     : (badgeOverrideInk || (automaticBadge ? this.readableInk(badgeDirColor, badgeSurface) : badgeDirColor));
@@ -1498,10 +1525,14 @@ export class Visual implements IVisual {
             // Adaptive default (D-16 sentinel): untouched shared-Title navy
             // swaps to the dark text token on dark surfaces.
             const setTitle = t.titleColor?.value?.value ?? "#1a1a2e";
-            // #819 ink site: a forced Codex mode owns the title ink against
-            // its own surface, exactly as it owns the row inks.
-            const adaptiveTitle = (this.codex && this.codex.mode !== "auto") || setTitle === "#1a1a2e"
-                ? this.readableInk(this.currentTheme === "dark" ? surfaceTokens("dark").text : setTitle) : setTitle;
+            // #819 rule 3 ink site: a forced Codex mode owns the title ink
+            // against its own surface when the pane is untouched, and guards
+            // an explicit title colour rather than replacing it.
+            const titleDefault = this.readableInk(
+                this.currentTheme === "dark" ? surfaceTokens("dark").text : "#1a1a2e");
+            const adaptiveTitle = this.codex
+                ? forcedInk(setTitle, titleDefault, this.codex, setTitle === "#1a1a2e")
+                : (setTitle === "#1a1a2e" ? titleDefault : setTitle);
             this.titleEl.style.color = this.isHighContrast
                 ? this.highContrastForeground
                 : adaptiveTitle;
