@@ -78,20 +78,29 @@ function numericSections(format: string): string[] {
  */
 export function formatModelNumber(n: number, format: string | null | undefined, locale?: string): string {
     if (!format) return n.toLocaleString(locale);
-
-    // Apply an explicit accounting negative section without changing the
-    // existing single-section, currency-sign or optional-precision policies.
-    // (astra pass three, every visual: `#,0.00;(#,0.00)` rendered "-1,234.56".)
-    if (n < 0) {
-        const sections = numericSections(format);
-        const negative = sections[1]?.trim();
-        if (negative?.startsWith("(") && negative.endsWith(")")) {
-            const body = formatModelNumber(Math.abs(n), negative.slice(1, -1), locale);
-            // .NET: a negative that rounds to zero in its own section is
-            // rendered with the positive section, never as "(0.00)".
-            return /[1-9]/.test(body) ? `(${body})` : formatModelNumber(0, sections[0], locale);
+    // Multi-section formats (`pos;neg[;zero]`): route a non-negative value to
+    // its own section instead of feeding the whole string to the branches below
+    // (astra pass three added only the accounting negative). Then unescape .NET
+    // backslash literals — Desktop's own default currency format is
+    // `\$#,0.00;(\$#,0.00);\$#,0.00` and the visuals printed "\$300K"
+    // (Neil 2026-09-12). Sections split BEFORE the unescape so `\;` never splits.
+    const sections = numericSections(format);
+    if (sections.length > 1) {
+        if (n < 0) {
+            const negative = sections[1]?.trim();
+            if (negative?.startsWith("(") && negative.endsWith(")")) {
+                const body = formatModelNumber(Math.abs(n), negative.slice(1, -1), locale);
+                // .NET: a negative that rounds to zero in its own section is
+                // rendered with the positive section, never as "(0.00)".
+                return /[1-9]/.test(body) ? `(${body})` : formatModelNumber(0, sections[0], locale);
+            }
+        } else if (n === 0 && sections.length >= 3 && sections[2].trim()) {
+            return formatModelNumber(0, sections[2], locale);
+        } else {
+            return formatModelNumber(n, sections[0], locale);
         }
     }
+    if (format.indexOf("\\") >= 0) format = format.replace(/\\(.)/g, "$1");
 
     // Percentage formats: "0.00%;-0.00%;0.00%", "0%", "0.0%". Power BI stores
     // percentages as decimals (0.046 = 4.6%).
