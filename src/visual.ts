@@ -305,6 +305,7 @@ export class Visual implements IVisual {
             // Corner-bracket re-tint each update (created once in the constructor).
             applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
                 autoHex: neonColorFor(accentToken(theme), codex),
+                flareHex: flareHexFor(codex),
                 hcActive: hc.active,
                 hcColor: hc.color,
                 mirror: true,
