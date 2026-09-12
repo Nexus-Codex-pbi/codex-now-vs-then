@@ -211,3 +211,27 @@ export function forcedInk(userHex: string, modeDefaultHex: string, r: ResolvedCo
     if (isDefault) return modeDefaultHex;
     return contrastRatio(userHex, r.surfaceHex) >= 4.5 ? userHex : modeDefaultHex;
 }
+
+/** Rule 2, guarded (Neil 2026-09-12, second decision): the chrome fill to paint
+ *  under the resolved mode. Auto → the user's value. Forced + default → the mode's
+ *  token. Forced + explicit → the user's fill if it still SEPARATES from the mode's
+ *  surface (≥ 1.3:1 — a track only has to be visible, not readable), else the token.
+ *  Keeps an author's deliberate track / border / gridline colour alive under a
+ *  forced mode instead of making its picker inert. */
+export function forcedChrome(userHex: string, modeTokenHex: string, r: ResolvedCodexTheme, isDefault: boolean): string {
+    if (r.mode === "auto") return userHex;
+    if (isDefault) return modeTokenHex;
+    return contrastRatio(userHex, r.surfaceHex) >= 1.3 ? userHex : modeTokenHex;
+}
+
+/** Rule 3's fx exemption, one suite-wide test (Neil 2026-09-12, third decision):
+ *  a host-evaluated conditional-formatting rule and a pane swatch arrive on the
+ *  same field, so the only signal is that the RESOLVED colour differs from the
+ *  pane's static value. True → the colour is data: paint it verbatim under every
+ *  mode (never forcedInk / forcedChrome it). Known, benign false negative: a rule
+ *  that resolves to exactly the static value is treated as a pane ink and guarded.
+ *  (The Time Breakdown `!totalIsFx` / Slicer Bar `chipColorIsFx` idiom, shared.) */
+export function isFxResolved(resolvedHex: string | null | undefined, paneHex: string | null | undefined): boolean {
+    if (!resolvedHex || !paneHex) return false;
+    return resolvedHex.toLowerCase() !== paneHex.toLowerCase();
+}
