@@ -622,6 +622,71 @@
         }
       }
     },
+    "codexTheme": {
+      "displayName": "Nexus Codex Theme",
+      "properties": {
+        "mode": {
+          "displayName": "Mode",
+          "type": {
+            "enumeration": [
+              {
+                "displayName": "Automatic",
+                "value": "auto"
+              },
+              {
+                "displayName": "Dark",
+                "value": "dark"
+              },
+              {
+                "displayName": "Light",
+                "value": "light"
+              },
+              {
+                "displayName": "Neon",
+                "value": "neon"
+              }
+            ]
+          }
+        },
+        "surfaceTransparency": {
+          "displayName": "Surface Transparency",
+          "type": {
+            "numeric": true
+          }
+        },
+        "neonColor": {
+          "displayName": "Flare Colour",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "neonScope": {
+          "displayName": "Neon Applies To",
+          "type": {
+            "enumeration": [
+              {
+                "displayName": "Flare colour only",
+                "value": "flare"
+              },
+              {
+                "displayName": "All selected colours",
+                "value": "all"
+              }
+            ]
+          }
+        },
+        "glowStrength": {
+          "displayName": "Glow Strength",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
     "cardSignature": {
       "properties": {
         "show": {
