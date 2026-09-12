@@ -39,7 +39,7 @@ export function fractionDigitsFor(format: string | null | undefined): { min: num
     return { min, max: min + optional };
 }
 
-function numericSections(format: string): string[] {
+export function numericSections(format: string): string[] {
     const sections: string[] = [];
     let start = 0;
     let quote = "";
