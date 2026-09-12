@@ -205,11 +205,15 @@ export function neonFilter(cssColor: string, glow: number): string {
 /** Rule 3: the ink to paint under the resolved mode.
  *  Auto → the user's value untouched. Forced → the user's explicit ink if it reads
  *  at ≥ 4.5:1 on the mode's surface, else the mode's own default ink. A pane
- *  value still at its default (`isDefault`) always takes the mode's default. */
-export function forcedInk(userHex: string, modeDefaultHex: string, r: ResolvedCodexTheme, isDefault: boolean): string {
+ *  value still at its default (`isDefault`) always takes the mode's default.
+ *  `surfaceHex` is the surface the ink is actually painted on; it defaults to the
+ *  card. An ink on a cell fill (Heatmap, Sparkline Table) must pass the CELL's
+ *  composited colour — judged against the card, explicit white on a white
+ *  maximum cell read 1.00:1 (NEXUS re-review 2026-09-13 H1). */
+export function forcedInk(userHex: string, modeDefaultHex: string, r: ResolvedCodexTheme, isDefault: boolean, surfaceHex: string = r.surfaceHex): string {
     if (r.mode === "auto") return isDefault ? modeDefaultHex : userHex;
     if (isDefault) return modeDefaultHex;
-    return contrastRatio(userHex, r.surfaceHex) >= 4.5 ? userHex : modeDefaultHex;
+    return contrastRatio(userHex, surfaceHex) >= 4.5 ? userHex : modeDefaultHex;
 }
 
 /** Rule 2, guarded (Neil 2026-09-12, second decision): the chrome fill to paint
