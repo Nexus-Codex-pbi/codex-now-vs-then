@@ -19,7 +19,7 @@
 
 import powerbi from "powerbi-visuals-api";
 import { formattingSettings } from "powerbi-visuals-utils-formattingmodel";
-import { compositeOver } from "./colorHelpers";
+import { compositeOver, contrastRatio } from "./colorHelpers";
 import { surfaceTokens } from "./designTokens";
 
 import FormattingSettingsCard = formattingSettings.SimpleCard;
@@ -188,4 +188,26 @@ export function neonShadow(cssColor: string, glow: number): string {
 export function neonFilter(cssColor: string, glow: number): string {
     if (glow <= 0) return "none";
     return `drop-shadow(0 0 4px color-mix(in srgb, ${cssColor} ${Math.round(glow)}%, transparent)) drop-shadow(0 0 12px color-mix(in srgb, ${cssColor} ${Math.round(glow * 0.45)}%, transparent))`;
+}
+
+// ─── Forced-mode contract, decided by Neil 2026-09-12 (#819 contract questions) ──
+//   1. Semantic band colours (danger red, warning amber, good green — anything whose
+//      hue MEANS something) are NEVER tinted by the flare. Under scope "flare" they
+//      keep their hue and only glow in it; pass them through neonColorFor only when
+//      the colour is an ACCENT (signature, dots, LED chrome, headline).
+//   2. Neutral chrome fills authored for the other tone (a progress track, a bullet
+//      background bar, gridlines) re-tone to the forced mode's surface tokens —
+//      they are chrome, not data.
+//   3. An ink the user set explicitly is KEPT under a forced mode when it is still
+//      legible on the mode's surface, and flipped to the mode's default only when it
+//      is not (the Now vs Then guard, now the suite rule — the pilot replaced it).
+
+/** Rule 3: the ink to paint under the resolved mode.
+ *  Auto → the user's value untouched. Forced → the user's explicit ink if it reads
+ *  at ≥ 4.5:1 on the mode's surface, else the mode's own default ink. A pane
+ *  value still at its default (`isDefault`) always takes the mode's default. */
+export function forcedInk(userHex: string, modeDefaultHex: string, r: ResolvedCodexTheme, isDefault: boolean): string {
+    if (r.mode === "auto") return isDefault ? modeDefaultHex : userHex;
+    if (isDefault) return modeDefaultHex;
+    return contrastRatio(userHex, r.surfaceHex) >= 4.5 ? userHex : modeDefaultHex;
 }
