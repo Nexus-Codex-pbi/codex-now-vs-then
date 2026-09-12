@@ -39,7 +39,8 @@ import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import {
-    ResolvedCodexTheme, resolveCodexTheme, neonColorFor, neonFilter, flareHexFor, forcedInk } from "./shared/codexThemeSettings";
+    ResolvedCodexTheme, resolveCodexTheme, neonColorFor, neonFilter, flareHexFor, forcedInk,
+    forcedChrome, isFxResolved } from "./shared/codexThemeSettings";
 import { settle, MOTION_MAX_MS } from "./shared/motion";
 import { applyHighContrast } from "./shared/highContrast";
 import { LicenseGate } from "./shared/licensing";
@@ -714,10 +715,11 @@ export class Visual implements IVisual {
         const style = this.formattingSettings.styleCard;
 
         // #819: the ONE Codex resolution update() already made for this
-        // render — read, never re-resolved. `inkOverride` is the forced-mode
-        // flag that widens every "adapt only when the user left the default"
-        // ink rule below to "adapt when forced OR default". `flare()` is the
-        // Neon accent rule (flare scope tints, "all" scope keeps the hue).
+        // render — read, never re-resolved. `inkOverride` is the bare forced-mode
+        // flag; since pass 2 the ink and chrome rules are the guarded `ink()` /
+        // `chrome()` wrappers below and its ONLY remaining reader is the
+        // direction-colour readability guard (:1003). `flare()` is the Neon
+        // accent rule (flare scope tints, "all" scope keeps the hue).
         const codex = this.codex;
         const inkOverride = codex ? codex.mode !== "auto" : false;
         const flare = (hex: string): string => codex ? neonColorFor(hex, codex) : hex;
@@ -726,6 +728,16 @@ export class Visual implements IVisual {
         const ink = (userHex: string, modeDefaultHex: string, sentinelHex: string): string =>
             codex ? forcedInk(userHex, modeDefaultHex, codex, userHex === sentinelHex)
                 : (userHex === sentinelHex ? modeDefaultHex : userHex);
+        // Rule 2, guarded, in the same idiom. NOTE the Auto branch is spelled
+        // out rather than handed to forcedChrome: forcedChrome returns the
+        // user's hex unconditionally in Auto, which is right for a picker whose
+        // default is a real colour, but this visual's chrome pickers carry a
+        // D-16 SENTINEL default that Auto already swaps for the theme's own
+        // token. Passing Auto through forcedChrome would paint the sentinel.
+        const chrome = (userHex: string, modeTokenHex: string, sentinelHex: string): string =>
+            codex && codex.mode !== "auto"
+                ? forcedChrome(userHex, modeTokenHex, codex, userHex === sentinelHex)
+                : (userHex === sentinelHex ? modeTokenHex : userHex);
 
         // Direction law (v2 design): increases lime, decreases magenta,
         // untouched only — a user pick still wins.
@@ -803,13 +815,16 @@ export class Visual implements IVisual {
         const badgeStyle = lbl.badgeItalic.value ? "italic" : "normal";
         const badgeDecoration = lbl.badgeUnderline.value ? "underline" : "none";
 
-        // #819 rule 2: the dumbbell track is CHROME, not data — it carries no
-        // value, it is the groove the marks travel in. A forced mode re-tones
-        // it to that mode's own track token, so a track colour picked for a
-        // white card doesn't stay a pale bar on the Codex dark surface. Auto
-        // is untouched, and the marks, band and chip fills stay the user's.
-        let trackColor = inkOverride || style.trackColor.value.value === "#1c1c3a"
-            ? surfaceTokens(theme).track : style.trackColor.value.value;
+        // #819 rule 2, now GUARDED (forcedChrome): the dumbbell track is CHROME,
+        // not data — it carries no value, it is the groove the marks travel in.
+        // A forced mode re-tones an UNTOUCHED track to that mode's own token, so
+        // a report that never picked one doesn't keep a pale bar on the Codex
+        // dark surface — but a track colour the author DID pick survives the
+        // forced mode whenever it still separates from that mode's surface at
+        // 1.3:1 (a track only has to be visible, not readable), instead of the
+        // picker going inert. Auto is untouched, and the marks, band and chip
+        // fills stay the user's.
+        let trackColor = chrome(style.trackColor.value.value, surfaceTokens(theme).track, "#1c1c3a");
         const trackHeight = Math.max(1, style.trackHeight.value);
         const rowSpacing = Math.max(4, style.rowSpacing.value);
 
@@ -979,8 +994,15 @@ export class Visual implements IVisual {
             // the automatic direction colour already gets — the guard only
             // ever applies to the TEXT (endpoint caption, badge label); the
             // mark itself keeps whatever colour the user or the fx rule chose.
+            // #819 third decision: `!instanceObjects?.comparisonSettings
+            // ?.positiveColor` was this file's own fx idiom — "did something
+            // other than the pane choose this row's colour?" — spelled as an
+            // object-presence test. isFxResolved is the suite's ONE name for
+            // that question, and it asks it of the value that was actually
+            // resolved, so a rule reaching the row by any path the presence
+            // test cannot see still counts as data.
             const automaticDirection = inkOverride || (row.direction === "positive"
-                ? comp.positiveColor.value.value === "#007064" && !instanceObjects?.comparisonSettings?.positiveColor
+                ? comp.positiveColor.value.value === "#007064" && !isFxResolved(resolvedPositiveColor, positiveColor)
                 : row.direction === "negative" ? comp.negativeColor.value.value === "#e60e22"
                     : comp.neutralColor.value.value === "#5e5d5a");
 
