@@ -92,6 +92,13 @@ export interface CardSignatureParams {
     muted?: boolean;
     mirror?: boolean;
     cardRadius?: number;
+    /** Nexus Codex Theme (#819), Neon with scope "flare": the flare colour
+     *  outranks BOTH the visual's auto colour and a custom colour the author
+     *  picked — the contract names the user's hex as the thing the flare
+     *  replaces. Found by three executors independently (Zone Gauge, Callback
+     *  Card, KPI Sparkline): tinting `autoHex` alone never reaches a report
+     *  with Auto Color off. Undefined outside Neon-flare; HC still wins. */
+    flareHex?: string;
 }
 
 export interface ResolvedCardSignature {
@@ -116,6 +123,7 @@ export function resolveCardSignature(
     } else if (!p.muted && sig && !sig.autoColor.value) {
         hex = sig.color.value.value;
     }
+    if (!p.hcActive && p.flareHex) hex = p.flareHex;
     return { visible, variant, hex };
 }
 

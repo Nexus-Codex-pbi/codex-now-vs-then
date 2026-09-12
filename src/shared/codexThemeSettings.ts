@@ -166,8 +166,17 @@ export function neonColorFor(userHex: string, r: ResolvedCodexTheme): string {
     return r.neon && r.neonScope === "flare" ? r.neonColor : userHex;
 }
 
+/** The value to hand `applyCardSignature`'s `flareHex` (see
+ *  cardSignatureSettings.ts): the flare colour under Neon + scope "flare",
+ *  otherwise undefined so the signature keeps its own resolution. */
+export function flareHexFor(r: ResolvedCodexTheme): string | undefined {
+    return r.neon && r.neonScope === "flare" ? r.neonColor : undefined;
+}
+
 /** box-shadow / text-shadow flare: a tight core and a wide halo in the
- *  colour's own hue, scaled by the glow budget (0 → none). */
+ *  colour's own hue, scaled by the glow budget (0 → none).
+ *  NOTE: an inline box-shadow outranks a stylesheet `:hover` box-shadow on the
+ *  same element (Heatmap peak cell) — use neonFilter there instead. */
 export function neonShadow(cssColor: string, glow: number): string {
     if (glow <= 0) return "none";
     const core = Math.min(100, Math.round(glow));

@@ -39,8 +39,7 @@ import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import {
-    ResolvedCodexTheme, resolveCodexTheme, neonColorFor, neonFilter,
-} from "./shared/codexThemeSettings";
+    ResolvedCodexTheme, resolveCodexTheme, neonColorFor, neonFilter, flareHexFor } from "./shared/codexThemeSettings";
 import { settle, MOTION_MAX_MS } from "./shared/motion";
 import { applyHighContrast } from "./shared/highContrast";
 import { LicenseGate } from "./shared/licensing";
@@ -322,6 +321,7 @@ export class Visual implements IVisual {
                 this.titleEl.style.display = "none";
                 applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
                     autoHex: neonColorFor(accentToken(theme), codex), hcActive: hc.active, hcColor: hc.color, mirror: true, muted: true,
+                    flareHex: flareHexFor(codex),
                 });
                 this.renderEmpty(sc.clientWidth, sc.clientHeight, theme);
                 this.eventService.renderingFinished(options);
