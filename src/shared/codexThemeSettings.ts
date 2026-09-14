@@ -36,11 +36,18 @@ export type CodexMode = "auto" | "dark" | "light";
 type StoredMode = CodexMode | "neon";
 export type NeonScope = "flare" | "all";
 
+// The dropdown the author SEES. Neon is a toggle, not a mode (Neil 2026-09-14).
 const MODES = [
     { displayName: "Automatic", value: "auto" },
     { displayName: "Dark", value: "dark" },
     { displayName: "Light", value: "light" },
 ];
+// The list used to PARSE a persisted value. FormattingSettingsUtils.getPropertyValue
+// resolves a Dropdown's stored value with `items.find(i => i.value == value)` and
+// returns undefined when it is absent — so dropping "neon" from `items` silently
+// reset every report that had Neon selected back to Automatic (measured 15/15).
+// Construct with the legacy value present, then trim it for display in reveal().
+const MODES_WITH_LEGACY = MODES.concat([{ displayName: "Dark", value: "neon" }]);
 const SCOPES = [
     { displayName: "Flare colour only", value: "flare" },
     { displayName: "All selected colours", value: "all" },
@@ -54,7 +61,7 @@ export class CodexThemeSettings extends FormattingSettingsCard {
         name: "mode",
         displayName: "Mode",
         description: "Automatic follows your Background colour; Dark and Light force the Codex look",
-        items: MODES,
+        items: MODES_WITH_LEGACY,
         value: MODES[0],
     });
 
@@ -111,6 +118,14 @@ export class CodexThemeSettings extends FormattingSettingsCard {
     /** Show only the slices that matter for the chosen mode. Call from
      *  getFormattingModel() before building the model. */
     reveal(): void {
+        // Migrate a report saved under the retired mode="neon" BEFORE trimming the
+        // parse list, then show the author the three real modes.
+        if (this.storedMode() === "neon") {
+            this.mode.value = MODES[1];   // Dark — the tokens Neon used to force
+            this.neon.value = true;
+        }
+        this.mode.items = MODES;
+
         const m = this.currentMode();
         this.surfaceTransparency.visible = m !== "auto";
         const neon = this.neonOn();
