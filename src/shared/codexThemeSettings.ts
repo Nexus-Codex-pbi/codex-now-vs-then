@@ -7,10 +7,15 @@
 //           1.x behaviour; the shipped default.
 //   Dark / Light — force the token set and paint the mode's own card surface
 //           at the card's Surface Transparency, whatever the page behind.
-//   Neon  — dark tokens + a glow on the accents (card signature, status dot,
-//           LED strip, headline). Flare colour picker with a scope switch:
-//           "Flare colour only" tints the accents with the picked colour;
-//           "All selected colours" glows every colour in its own hue.
+//   Neon  — an INDEPENDENT toggle, not a mode (Neil 2026-09-14). It adds a glow
+//           on the accents (card signature, status dot, LED strip, headline)
+//           over WHICHEVER mode is chosen — Automatic, Dark or Light. Flare
+//           colour picker with a scope switch: "Flare colour only" tints the
+//           accents with the picked colour; "All selected colours" glows every
+//           colour in its own hue.
+//           Legacy: a report saved with mode="neon" (the 2026-09-12 shipping
+//           shape, where Neon was a fourth mode forcing dark) resolves to
+//           Dark + Neon on, so it renders exactly as before.
 // High contrast outranks every mode (the ONE shared HC rule): the resolver
 // returns Auto with no neon whenever the host is in HC.
 //
@@ -26,14 +31,15 @@ import FormattingSettingsCard = formattingSettings.SimpleCard;
 import FormattingSettingsSlice = formattingSettings.Slice;
 
 type Theme = "dark" | "light";
-export type CodexMode = "auto" | "dark" | "light" | "neon";
+export type CodexMode = "auto" | "dark" | "light";
+/** Also accepted when READ from a report saved before 2026-09-14. */
+type StoredMode = CodexMode | "neon";
 export type NeonScope = "flare" | "all";
 
 const MODES = [
     { displayName: "Automatic", value: "auto" },
     { displayName: "Dark", value: "dark" },
     { displayName: "Light", value: "light" },
-    { displayName: "Neon", value: "neon" },
 ];
 const SCOPES = [
     { displayName: "Flare colour only", value: "flare" },
@@ -47,7 +53,7 @@ export class CodexThemeSettings extends FormattingSettingsCard {
     mode = new formattingSettings.ItemDropdown({
         name: "mode",
         displayName: "Mode",
-        description: "Automatic follows your Background colour; Dark, Light and Neon force the Codex look",
+        description: "Automatic follows your Background colour; Dark and Light force the Codex look",
         items: MODES,
         value: MODES[0],
     });
@@ -55,12 +61,19 @@ export class CodexThemeSettings extends FormattingSettingsCard {
     surfaceTransparency = new formattingSettings.Slider({
         name: "surfaceTransparency",
         displayName: "Surface Transparency",
-        description: "How much of the page shows through the Codex surface (Dark, Light, Neon)",
+        description: "How much of the page shows through the Codex surface (Dark and Light)",
         value: 0,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
             maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 },
         },
+    });
+
+    neon = new formattingSettings.ToggleSwitch({
+        name: "neon",
+        displayName: "Neon Glow",
+        description: "Adds the Codex flare to accents over any mode — Automatic, Dark or Light",
+        value: false,
     });
 
     neonColor = new formattingSettings.ColorPicker({
@@ -89,6 +102,7 @@ export class CodexThemeSettings extends FormattingSettingsCard {
     slices: FormattingSettingsSlice[] = [
         this.mode,
         this.surfaceTransparency,
+        this.neon,
         this.neonColor,
         this.neonScope,
         this.glowStrength,
@@ -99,15 +113,28 @@ export class CodexThemeSettings extends FormattingSettingsCard {
     reveal(): void {
         const m = this.currentMode();
         this.surfaceTransparency.visible = m !== "auto";
-        const neon = m === "neon";
+        const neon = this.neonOn();
         this.neonColor.visible = neon;
         this.neonScope.visible = neon;
         this.glowStrength.visible = neon;
     }
 
-    currentMode(): CodexMode {
+    /** The raw stored value, which may still be the retired "neon" mode. */
+    private storedMode(): StoredMode {
         const v = String(this.mode.value?.value ?? "auto");
-        return (["auto", "dark", "light", "neon"].indexOf(v) >= 0 ? v : "auto") as CodexMode;
+        return (["auto", "dark", "light", "neon"].indexOf(v) >= 0 ? v : "auto") as StoredMode;
+    }
+
+    currentMode(): CodexMode {
+        const v = this.storedMode();
+        // Retired mode: Neon used to force dark tokens, so that is what it means.
+        return v === "neon" ? "dark" : v;
+    }
+
+    /** Neon is independent of the mode. True for the toggle, or for a report
+     *  still holding the retired mode="neon". */
+    neonOn(): boolean {
+        return this.storedMode() === "neon" || Boolean(this.neon.value);
     }
 }
 
@@ -138,25 +165,39 @@ export interface ResolvedCodexTheme {
 }
 
 export function resolveCodexTheme(card: CodexThemeSettings | undefined, p: CodexThemeInput): ResolvedCodexTheme {
-    const mode: CodexMode = !card || p.hcActive ? "auto" : card.currentMode();
-    if (mode === "auto") {
+    // High contrast outranks everything, mode and neon alike (the ONE shared HC rule).
+    if (!card || p.hcActive) {
         return {
-            mode, theme: p.autoTheme, bgHex: p.autoBgHex, transparencyPct: p.autoTransparencyPct,
+            mode: "auto", theme: p.autoTheme, bgHex: p.autoBgHex, transparencyPct: p.autoTransparencyPct,
             surfaceHex: compositeOver(p.autoBgHex, p.autoTransparencyPct, p.behindHex),
             neon: false, neonColor: "#ac74da", neonScope: "flare", glow: 0,
         };
     }
+    const mode: CodexMode = card.currentMode();
+    // Neon is orthogonal to the mode (Neil 2026-09-14): it rides on Automatic,
+    // Dark or Light alike, and never changes which tokens the mode picked.
+    const neon = card.neonOn();
+    const neonColor = String(card.neonColor.value?.value ?? "#ac74da");
+    const neonScope: NeonScope = String(card.neonScope.value?.value ?? "flare") === "all" ? "all" : "flare";
+    const glow = neon ? Math.max(0, Math.min(100, Number(card.glowStrength.value ?? 55))) : 0;
+
+    if (mode === "auto") {
+        // Automatic keeps its derived tone and painted fill byte-for-byte; only
+        // the flare is added. This is the case the retired fourth mode made
+        // unreachable.
+        return {
+            mode, theme: p.autoTheme, bgHex: p.autoBgHex, transparencyPct: p.autoTransparencyPct,
+            surfaceHex: compositeOver(p.autoBgHex, p.autoTransparencyPct, p.behindHex),
+            neon, neonColor, neonScope, glow,
+        };
+    }
     const theme: Theme = mode === "light" ? "light" : "dark";
     const bgHex = surfaceTokens(theme).card;
-    const transparencyPct = Math.max(0, Math.min(100, Number(card!.surfaceTransparency.value ?? 0)));
-    const neon = mode === "neon";
+    const transparencyPct = Math.max(0, Math.min(100, Number(card.surfaceTransparency.value ?? 0)));
     return {
         mode, theme, bgHex, transparencyPct,
         surfaceHex: compositeOver(bgHex, transparencyPct, p.behindHex),
-        neon,
-        neonColor: String(card!.neonColor.value?.value ?? "#ac74da"),
-        neonScope: (String(card!.neonScope.value?.value ?? "flare") === "all" ? "all" : "flare"),
-        glow: neon ? Math.max(0, Math.min(100, Number(card!.glowStrength.value ?? 55))) : 0,
+        neon, neonColor, neonScope, glow,
     };
 }
 
