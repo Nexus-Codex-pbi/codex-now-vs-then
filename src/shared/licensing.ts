@@ -5,6 +5,9 @@ import powerbi from "powerbi-visuals-api";
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 import LicenseInfoResult = powerbi.extensibility.visual.LicenseInfoResult;
 import ServicePlan = powerbi.extensibility.visual.ServicePlan;
+import DataView = powerbi.DataView;
+
+import { verifySuiteKey } from "./suiteKey";
 
 /**
  *  Licence gate — HARD BLOCK.
@@ -61,6 +64,17 @@ import ServicePlan = powerbi.extensibility.visual.ServicePlan;
  *  It also renders while the asynchronous check is still in flight; the gate starts
  *  OPEN and the redraw callback re-runs update() once the answer lands. A licensed
  *  user therefore never sees a flash of blocked state.
+ *
+ *  SUITE KEY (2026-10-14, Neil: "I want a license key I can use as a tester"). A
+ *  second, OFFLINE entitlement beside the Microsoft plan check: a signed suite key
+ *  (NCX1.<payload>.<sig>, see suiteKey.ts) pasted into the `licence.key` format
+ *  property. The gate reads it straight off the DataView metadata each frame, verifies
+ *  it once per distinct value with crypto.subtle — no network, ever — and a verified,
+ *  unexpired key that covers this visual OPENS the gate regardless of what the
+ *  platform reports. A missing, malformed, expired or foreign key changes NOTHING:
+ *  the platform answer alone still decides. Microsoft's guidelines put IAP licence
+ *  management on the ISV ("can be managed using any platform"), so this is permitted;
+ *  the key is also how the off-marketplace SUITE licence is fulfilled.
  *
  *  LIFECYCLE: the gate holds an in-flight promise that outlives the visual. Call
  *  `dispose()` as the FIRST line of the visual's destroy() — NEXUS lifecycle finding
@@ -165,9 +179,19 @@ export class LicenseGate {
     private notified = false;
     private disposed = false;
     private onResolved?: () => void;
+    /** Raw suite key last seen on the DataView; verification runs once per distinct value. */
+    private keyRaw = "";
+    /** True only after crypto.subtle verified an unexpired key covering this visual. */
+    private keyGranted = false;
+    private readonly visualId: string;
 
-    constructor(private host: IVisualHost, onResolved?: () => void) {
+    /**
+     *  @param visualId this visual's suite slug (e.g. "kpi-card") as it appears in a
+     *  key's scope list. Defaults to "*", which only an all-visual ("*") key covers.
+     */
+    constructor(private host: IVisualHost, onResolved?: () => void, visualId: string = "*") {
         this.onResolved = onResolved;
+        this.visualId = visualId;
         checkLicense(host).then((s) => {
             if (this.disposed) return;
             this.state = s;
@@ -189,19 +213,54 @@ export class LicenseGate {
     }
 
     public get blocked(): boolean {
-        return this.state.blocked;
+        return this.state.blocked && !this.keyGranted;
+    }
+
+    /** `licence.key` off the first DataView's metadata, or "" when absent. */
+    private static readKey(dataViews?: DataView[]): string {
+        const dv = dataViews && dataViews[0];
+        const objs = dv && dv.metadata && dv.metadata.objects;
+        const lic = objs && (objs as any)["licence"];
+        const key = lic && (lic as any)["key"];
+        return typeof key === "string" ? key.trim() : "";
+    }
+
+    /**
+     *  Track the pasted suite key. A changed value immediately revokes the previous
+     *  grant and starts one async verification; a grant lands via the redraw callback
+     *  exactly like the platform answer does.
+     */
+    private observeKey(dataViews?: DataView[]): void {
+        const raw = LicenseGate.readKey(dataViews);
+        if (raw === this.keyRaw) return;
+        this.keyRaw = raw;
+        this.keyGranted = false;
+        if (!raw) return;
+        verifySuiteKey(raw, this.visualId).then(
+            (r) => {
+                if (this.disposed || raw !== this.keyRaw) return;
+                this.keyGranted = r.granted;
+                if (r.granted && this.onResolved) this.onResolved();
+            },
+            () => {
+                /* a key that cannot be verified grants nothing */
+            }
+        );
     }
 
     /**
      *  TRUE when the platform definitively reported no usable service plan — the
      *  caller must hide its content and return without rendering.
      *
-     *  Returns FALSE — renders — for a licensed user, for an in-flight check, and for
-     *  every one of the three fail-open cases in checkLicense(). Only a definitive
-     *  "no usable plan" blocks.
+     *  Returns FALSE — renders — for a licensed user, for an in-flight check, for
+     *  every one of the three fail-open cases in checkLicense(), and for a holder of a
+     *  verified suite key. Only a definitive "no usable plan" with no key blocks.
+     *
+     *  Pass `options.dataViews` so the gate can see the `licence.key` property.
      */
-    public blockedThisFrame(): boolean {
-        if (!this.state.blocked) {
+    public blockedThisFrame(dataViews?: DataView[]): boolean {
+        this.observeKey(dataViews);
+        if (!this.blocked) {
             if (this.notified) {
                 clearNotification(this.host);
                 this.notified = false;
@@ -217,6 +276,6 @@ export class LicenseGate {
 
     /** True when the platform gave a definitive "no valid plan" answer. */
     public get unlicensed(): boolean {
-        return this.state.blocked;
+        return this.blocked;
     }
 }

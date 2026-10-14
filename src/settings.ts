@@ -12,6 +12,7 @@ import { BackgroundSettings } from "./shared/backgroundSettings";
 import { CodexThemeSettings } from "./shared/codexThemeSettings";
 import { BorderSettings } from "./shared/borderSettings";
 import { TitleSettings } from "./shared/titleSettings";
+import { LicenceSettings } from "./shared/licenceSettings";
 import { alignSelfFor, textAlignFor, makeFontControl } from "./shared/textFormatting";
 import { CardSignatureSettings } from "./shared/cardSignatureSettings";
 
@@ -461,9 +462,13 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
         this.background.transparency.value = 100;
     }
 
+    licence = new LicenceSettings();
+
     cards = [this.titleSettings, this.comparisonCard, this.labelCard, this.styleCard, this.axisCard, this.background,
         this.codexTheme,
         this.cardSignature,
-        this.visualBorder
+        this.visualBorder,
+
+        this.licence
     ];
 }

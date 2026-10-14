@@ -70,6 +70,12 @@
     }
   ],
   "objects": {
+    "licence": {
+      "displayName": "Licence",
+      "properties": {
+        "key": { "displayName": "Suite key", "type": { "text": true } }
+      }
+    },
     "comparisonSettings": {
       "properties": {
         "positiveColor": {

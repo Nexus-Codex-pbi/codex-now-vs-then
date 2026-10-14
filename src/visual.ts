@@ -162,7 +162,7 @@ export class Visual implements IVisual {
 
             if (this.lastUpdateOptions) this.update(this.lastUpdateOptions);
 
-        });
+        }, "now-vs-then");
         this.formattingSettingsService = new FormattingSettingsService();
         this.target = options.element;
         this.host = options.host;
@@ -235,7 +235,7 @@ export class Visual implements IVisual {
         this.eventService.renderingStarted(options);
         this.lastUpdateOptions = options;
 
-        if (this.licenseGate.blockedThisFrame()) {
+        if (this.licenseGate.blockedThisFrame(options.dataViews)) {
             this.target.style.display = "none";
             this.eventService.renderingFinished(options);
             return;
